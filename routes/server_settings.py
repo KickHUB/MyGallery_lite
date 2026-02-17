@@ -654,12 +654,20 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $dialog
 
     try:
         completed = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Sta",
+                "-Command",
+                script,
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=90,
+            timeout=300,
         )
     except FileNotFoundError as exc:
         raise RuntimeError("powershell not found") from exc
@@ -718,16 +726,25 @@ def _open_path_dialog_tk(kind: str, title: str | None = None, initial: str | Non
 
 
 def _open_path_dialog(kind: str, title: str | None = None, initial: str | None = None) -> str:
+    # On Windows, prefer PowerShell dialog first.
+    # Tk dialogs can freeze/hang when invoked from threaded Flask request handlers.
+    if os.name == "nt":
+        ps_error: Exception | None = None
+        try:
+            return _open_path_dialog_powershell(kind, title=title, initial=initial)
+        except Exception as exc:
+            ps_error = exc
+        try:
+            return _open_path_dialog_tk(kind, title=title, initial=initial)
+        except Exception as tk_exc:
+            raise RuntimeError(f"{ps_error}; tkinter fallback failed: {tk_exc}") from tk_exc
+
     tk_error: Exception | None = None
     try:
         return _open_path_dialog_tk(kind, title=title, initial=initial)
     except Exception as exc:
         tk_error = exc
-
-    try:
-        return _open_path_dialog_powershell(kind, title=title, initial=initial)
-    except Exception as ps_exc:
-        raise RuntimeError(f"{tk_error}; powershell fallback failed: {ps_exc}") from ps_exc
+    raise RuntimeError(str(tk_error))
 
 
 @bp.get("/api/settings/env/schema")

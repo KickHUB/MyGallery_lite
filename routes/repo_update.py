@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from flask import Blueprint, jsonify, request
 
 bp = Blueprint("repo_update", __name__)
+
+DEFAULT_REMOTE_URL = os.getenv(
+    "MYGALLERY_UPDATE_REMOTE_URL",
+    "https://github.com/KickHUB/MyGallery_lite.git",
+).strip()
+DEFAULT_REMOTE_BRANCH = (os.getenv("MYGALLERY_UPDATE_BRANCH", "main") or "main").strip()
 
 
 def _parse_bool(value: Any) -> bool:
@@ -19,7 +27,6 @@ def _parse_bool(value: Any) -> bool:
 
 
 def _run_cmd(args: List[str], timeout: int = 300) -> str:
-    """Run a command and return combined stdout/stderr text."""
     completed = subprocess.run(
         args,
         capture_output=True,
@@ -30,7 +37,7 @@ def _run_cmd(args: List[str], timeout: int = 300) -> str:
     )
     out = ((completed.stdout or "") + (completed.stderr or "")).strip()
     if completed.returncode != 0:
-        raise RuntimeError(out or f"명령 실행 실패: {args} (code={completed.returncode})")
+        raise RuntimeError(out or f"command failed: {args} (code={completed.returncode})")
     return out
 
 
@@ -39,42 +46,107 @@ def _run_git(repo_root: Path, *git_args: str, timeout: int = 300) -> str:
 
 
 def _get_repo_root() -> Path:
-    # routes/ 아래에 있으므로 부모 1단계가 레포 루트
+    # routes/ under repository root.
     return Path(__file__).resolve().parents[1]
 
 
 def _get_request_value(key: str) -> Optional[Any]:
-    # form/query/json 모두 지원 (버튼 호출 방식이 바뀌어도 대응)
+    # Support query/form/json.
     if request.values.get(key) is not None:
         return request.values.get(key)
     payload = request.get_json(silent=True) or {}
     return payload.get(key)
 
 
+def _ensure_local_identity(repo_root: Path, log) -> None:
+    try:
+        _run_git(repo_root, "config", "--get", "user.name")
+    except Exception:
+        _run_git(repo_root, "config", "--local", "user.name", "MyGallery Updater")
+        log("git config user.name (local fallback) applied")
+
+    try:
+        _run_git(repo_root, "config", "--get", "user.email")
+    except Exception:
+        _run_git(
+            repo_root,
+            "config",
+            "--local",
+            "user.email",
+            "mygallery-updater@users.noreply.local",
+        )
+        log("git config user.email (local fallback) applied")
+
+
+def _bootstrap_from_zip_install(
+    repo_root: Path,
+    *,
+    remote_url: str,
+    branch: str,
+    rebase: bool,
+    stash: bool,
+    log,
+) -> None:
+    git_dir = repo_root / ".git"
+    if git_dir.exists():
+        log("bootstrap skipped: .git already exists")
+        return
+
+    log("zip install detected -> git bootstrap start")
+    tmp_clone_dir = Path(tempfile.mkdtemp(prefix="mygallery-lite-bootstrap-"))
+    try:
+        clone_out = _run_cmd(
+            [
+                "git",
+                "clone",
+                "--branch",
+                branch,
+                "--single-branch",
+                "--depth",
+                "1",
+                remote_url,
+                str(tmp_clone_dir),
+            ],
+            timeout=900,
+        )
+        if clone_out:
+            log(clone_out)
+
+        src_git_dir = tmp_clone_dir / ".git"
+        if not src_git_dir.exists():
+            raise RuntimeError("bootstrap failed: cloned repository has no .git directory")
+
+        shutil.copytree(src_git_dir, git_dir)
+        log("bootstrap copied .git metadata into current folder")
+
+        # Keep remote URL synced with request/env overrides.
+        _run_git(repo_root, "remote", "set-url", "origin", remote_url)
+        _run_git(repo_root, "fetch", "--all", "--prune")
+        _ensure_local_identity(repo_root, log)
+
+        if rebase:
+            log("bootstrap mode: rebase update requested")
+        elif stash:
+            log("bootstrap mode: autostash update requested")
+        else:
+            log("bootstrap mode: ff-only update requested")
+    finally:
+        shutil.rmtree(tmp_clone_dir, ignore_errors=True)
+
+
 @bp.post("/api/repo/update/mygallery")
 def api_update_mygallery() -> tuple:
-    """MyGallery 레포를 git pull로 업데이트합니다.
-
-    - 기본: fast-forward only
-    - 옵션:
-        - rebase=1  -> git pull --rebase --autostash
-        - stash=1   -> dirty 상태이면 stash 후 pull, 완료 후 stash pop 시도
-    """
     if shutil.which("git") is None:
-        return jsonify({"ok": False, "error": "git이 PATH에 없습니다. Git for Windows 설치 후 PATH를 확인하세요."}), 400
+        return jsonify({"ok": False, "error": "git is not found in PATH."}), 400
 
     repo_root = _get_repo_root()
     git_dir = repo_root / ".git"
-    if not git_dir.exists():
-        return jsonify(
-            {
-                "ok": False,
-                "error": "현재 실행 중인 MyGallery 폴더에 .git 이 없습니다. (zip로 설치한 경우) git clone 형태로 설치해야 업데이트 버튼을 사용할 수 있습니다.",
-            }
-        ), 400
 
     rebase = _parse_bool(_get_request_value("rebase"))
     stash = _parse_bool(_get_request_value("stash"))
+    bootstrap = _parse_bool(_get_request_value("bootstrap"))
+    remote_url = str(_get_request_value("remote_url") or DEFAULT_REMOTE_URL).strip()
+    branch_name = str(_get_request_value("branch") or DEFAULT_REMOTE_BRANCH).strip() or "main"
 
     logs: List[str] = []
     warnings: List[str] = []
@@ -85,6 +157,35 @@ def api_update_mygallery() -> tuple:
     stashed = False
 
     try:
+        if not git_dir.exists():
+            if not bootstrap:
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "error": (
+                                "No .git directory found in current MyGallery folder. "
+                                "If installed from zip, run update with bootstrap enabled "
+                                "or use git clone install."
+                            ),
+                        }
+                    ),
+                    400,
+                )
+
+            if not remote_url:
+                return jsonify({"ok": False, "error": "remote_url is empty. Cannot bootstrap git repo."}), 400
+
+            _bootstrap_from_zip_install(
+                repo_root,
+                remote_url=remote_url,
+                branch=branch_name,
+                rebase=rebase,
+                stash=stash,
+                log=log,
+            )
+            warnings.append("Zip install detected. Initialized git metadata automatically before update.")
+
         log(f"repo_root: {repo_root}")
         branch = _run_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
         old_commit = _run_git(repo_root, "rev-parse", "HEAD")
@@ -92,17 +193,20 @@ def api_update_mygallery() -> tuple:
         status = _run_git(repo_root, "status", "--porcelain=v1")
         if status.strip():
             if not stash:
-                return jsonify(
-                    {
-                        "ok": False,
-                        "error": "로컬 변경사항이 있어 업데이트할 수 없습니다. (git status가 dirty) 변경사항을 커밋/스태시 후 다시 시도하세요.",
-                        "details": status,
-                        "repo_root": str(repo_root),
-                        "branch": branch,
-                    }
-                ), 409
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "error": "Local working tree is dirty. Commit/stash changes first.",
+                            "details": status,
+                            "repo_root": str(repo_root),
+                            "branch": branch,
+                        }
+                    ),
+                    409,
+                )
 
-            log("dirty 상태 감지 → stash push -u")
+            log("dirty working tree detected -> git stash push -u")
             _run_git(repo_root, "stash", "push", "-u", "-m", "MyGallery in-app update")
             stashed = True
 
@@ -125,15 +229,15 @@ def api_update_mygallery() -> tuple:
 
         if stashed:
             try:
-                log("stash pop 시도")
+                log("git stash pop")
                 pop_out = _run_git(repo_root, "stash", "pop")
                 if pop_out:
                     log(pop_out)
             except Exception as exc:
                 warnings.append(
-                    "stash pop에 실패했습니다. 충돌이 있을 수 있으니 수동으로 확인하세요. (git stash list / git status)"
+                    "stash pop failed. Check conflicts manually with `git status` and `git stash list`."
                 )
-                log(f"[stash pop 오류] {exc}")
+                log(f"[stash pop error] {exc}")
 
         return (
             jsonify(
@@ -153,6 +257,6 @@ def api_update_mygallery() -> tuple:
         )
 
     except subprocess.TimeoutExpired:
-        return jsonify({"ok": False, "error": "git 명령이 시간 초과되었습니다.", "logs": logs}), 504
+        return jsonify({"ok": False, "error": "git command timed out.", "logs": logs}), 504
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc), "logs": logs}), 500

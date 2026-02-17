@@ -7927,7 +7927,11 @@ function initGalleryUpdateButton() {
             const res = await fetch("/api/repo/update/mygallery", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ rebase: true, stash: true }),
+                body: JSON.stringify({
+                    rebase: true,
+                    stash: true,
+                    bootstrap: true,
+                }),
             });
             const data = await res.json().catch(() => ({}));
 
