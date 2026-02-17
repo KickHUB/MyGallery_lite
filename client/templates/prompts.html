@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}프롬프트 목록{% endblock %}
+
+{% block body_attrs %} class="page-prompts"{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <h1 class="page-title">🧾 프롬프트 목록</h1>
+
+    <div class="controls">
+        <input type="text" id="tag-filter" placeholder="프롬프트 검색..">
+        <button id="sort-popular" class="active">인기순</button>
+        <button id="sort-alpha">알파벳순</button>
+    </div>
+
+    <div class="tags-container" id="tags-container">
+        {% for item in tags %}
+            <div class="tag-item" data-tag="{{ item.tag }}" data-count="{{ item.count }}">
+                {{ item.tag }} ({{ item.count }})
+            </div>
+        {% endfor %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{{ url_for('static', filename='js/prompts.js') }}"></script>
+{% endblock %}

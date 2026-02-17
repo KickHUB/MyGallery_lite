@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}모델/LoRA 통계{% endblock %}
+
+{% block main_attrs %} id="stats-page" class="stats-page" data-initial-days="{{ initial_days or '' }}"{% endblock %}
+
+{% block content %}
+    <div class="page-shell">
+        <div class="stats-header">
+            <h1 class="page-title">📊 모델/LoRA 사용 통계</h1>
+            <div class="stats-controls">
+                <label for="stats-days">최근 N일</label>
+                <input type="number" id="stats-days" min="1" placeholder="예: 30" value="{{ initial_days or '' }}">
+                <button type="button" id="stats-apply">적용</button>
+                <button type="button" id="stats-clear" class="secondary">전체</button>
+            </div>
+            <div class="stats-status" id="stats-status">로딩 대기 중…</div>
+        </div>
+
+        <section class="stats-card" data-kind="models">
+            <div class="stats-card-header">
+                <h2>모델 사용 횟수</h2>
+                <div class="stats-card-controls">
+                    <label for="model-sort">정렬</label>
+                    <select id="model-sort">
+                        <option value="count_desc">사용 횟수 ↓</option>
+                        <option value="count_asc">사용 횟수 ↑</option>
+                        <option value="name_asc">이름 A→Z</option>
+                        <option value="name_desc">이름 Z→A</option>
+                    </select>
+                </div>
+            </div>
+            <div class="stats-summary" id="model-summary">-</div>
+            <table class="stats-table" id="model-stats">
+                <thead>
+                    <tr>
+                        <th>모델</th>
+                        <th>사용 횟수</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <p class="stats-empty hidden" id="model-empty">표시할 모델 데이터가 없습니다.</p>
+        </section>
+
+        <section class="stats-card" data-kind="loras">
+            <div class="stats-card-header">
+                <h2>LoRA 사용 횟수</h2>
+                <div class="stats-card-controls">
+                    <label for="lora-sort">정렬</label>
+                    <select id="lora-sort">
+                        <option value="count_desc">사용 횟수 ↓</option>
+                        <option value="count_asc">사용 횟수 ↑</option>
+                        <option value="name_asc">이름 A→Z</option>
+                        <option value="name_desc">이름 Z→A</option>
+                    </select>
+                </div>
+            </div>
+            <div class="stats-summary" id="lora-summary">-</div>
+            <table class="stats-table" id="lora-stats">
+                <thead>
+                    <tr>
+                        <th>LoRA</th>
+                        <th>사용 횟수</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <p class="stats-empty hidden" id="lora-empty">표시할 LoRA 데이터가 없습니다.</p>
+        </section>
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

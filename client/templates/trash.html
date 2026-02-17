@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% import "partials/_ui_macros.html" as ui %}
+
+{% block title %}휴지통{% endblock %}
+
+{% block body_attrs %} class="page-trash"{% endblock %}
+
+{% block content %}
+<div class="page-shell">
+    <h1 class="page-title">🗑 휴지통</h1>
+    <button type="button" class="trash-clear-btn" data-action="trash-clear">
+        🧹 휴지통 비우기
+    </button>
+
+    <div class="trash-controls">
+        <label for="trash-limit" class="trash-controls-label">페이지 크기</label>
+        <select id="trash-limit">
+            {% for size in [20, 50, 100, 200] %}
+                <option value="{{ size }}" {% if limit == size %}selected{% endif %}>{{ size }}개</option>
+            {% endfor %}
+        </select>
+        <span class="trash-count">
+            {{ start_index }}-{{ end_index }} / {{ total }}개 표시
+        </span>
+    </div>
+
+    {% call ui.gallery_grid() %}
+        {% for f in files %}
+            <div>
+                <img src="/trash_img/{{ f }}" class="thumb">
+                <div class="trash-actions">
+                    <button type="button" data-action="trash-restore" data-path="{{ f }}">복원</button>
+                    <button type="button" data-action="trash-delete" data-path="{{ f }}" class="btn-danger">영구 삭제</button>
+                </div>
+            </div>
+        {% endfor %}
+    {% endcall %}
+    <div class="trash-pagination">
+        {% if page > 1 %}
+            <a href="{{ url_for('trash.trash_page', page=page-1, limit=limit) }}">◀ 이전</a>
+        {% endif %}
+        <span>페이지 {{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+            <a href="{{ url_for('trash.trash_page', page=page+1, limit=limit) }}">다음 ▶</a>
+        {% endif %}
+    </div>
+
+    {{ ui.toast_container() }}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/trash.js') }}"></script>
+{% endblock %}

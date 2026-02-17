@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}단부루 태그{% endblock %}
+
+{% block body_attrs %} class="page-tags"{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <h1 class="page-title">🏷 단부루 태그</h1>
+
+    <div class="controls">
+        <input type="text" id="tag-filter" placeholder="태그 검색..">
+    </div>
+
+    <div id="tag-groups">
+        {% for group in tag_groups %}
+        <div class="tag-group" data-category="{{ group.category }}">
+            <div class="tag-group-title">
+                <span>{{ group.label }}</span>
+                <span class="count">({{ group["items"]|length }})</span>
+            </div>
+            <div class="tags-container">
+                <div class="tag-item tag-item-empty" data-empty="true" data-category="{{ group.category }}" data-count="{{ group.missing_count }}">
+                    {{ group.empty_label }} ({{ group.missing_count }})
+                </div>
+                {% for item in group["items"] %}
+                <div class="tag-item" data-tag="{{ item.tag }}" data-count="{{ item.count }}">
+                    {{ item.tag }} ({{ item.count }})
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{{ url_for('static', filename='js/tags.js') }}"></script>
+{% endblock %}

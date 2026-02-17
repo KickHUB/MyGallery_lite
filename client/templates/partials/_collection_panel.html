@@ -1,0 +1,34 @@
+<div id="collection-panel" class="collection-panel is-hidden">
+    <div class="collection-panel-content">
+        <div class="panel-header">
+            <h3>📁 모음집 관리</h3>
+            <button type="button" id="close-collection-panel" class="close-btn">×</button>
+        </div>
+        <div class="panel-body">
+            <div class="panel-section">
+                <h4>새 모음집 생성</h4>
+                <div class="inline-form">
+                    <input type="text" id="new-collection-name" placeholder="이름 입력">
+                    <select id="new-collection-parent"></select>
+                    <button type="button" id="create-collection-btn">➕ 생성</button>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h4>이름 변경</h4>
+                <div class="inline-form">
+                    <select id="rename-collection-select"></select>
+                    <input type="text" id="rename-collection-name" placeholder="새 이름">
+                    <select id="rename-parent-select"></select>
+                    <button type="button" id="rename-collection-btn">✏️ 변경</button>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h4>삭제</h4>
+                <div class="inline-form">
+                    <select id="delete-collection-select"></select>
+                    <button type="button" id="delete-collection-btn" class="danger">🗑 삭제</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

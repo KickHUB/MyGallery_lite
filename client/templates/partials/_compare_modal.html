@@ -1,0 +1,21 @@
+<!-- 이미지 비교 모달 -->
+<div id="compare-modal" class="compare-modal hidden">
+    <div class="compare-modal__content">
+        <div class="compare-modal__header">
+            <h3>🆚 이미지 비교</h3>
+            <div class="compare-modal__actions">
+                <button id="compare-orientation-horizontal" type="button" data-orientation="horizontal">좌우 배치</button>
+                <button id="compare-orientation-vertical" type="button" data-orientation="vertical">상하 배치</button>
+                <button id="compare-close" type="button">닫기</button>
+            </div>
+        </div>
+        <div id="compare-canvas" class="compare-canvas horizontal">
+            <div class="compare-slot">
+                <img id="compare-image-1" src="" alt="선택한 첫 번째 이미지">
+            </div>
+            <div class="compare-slot">
+                <img id="compare-image-2" src="" alt="선택한 두 번째 이미지">
+            </div>
+        </div>
+    </div>
+</div>

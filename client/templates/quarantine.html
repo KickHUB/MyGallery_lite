@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "partials/_ui_macros.html" as ui %}
+
+{% block title %}격리 이미지{% endblock %}
+
+{% block body_attrs %} class="page-quarantine"{% endblock %}
+
+{% block content %}
+    <div class="page-shell">
+        <h1 class="page-title">🚧 격리 이미지</h1>
+
+        {% if not grouped %}
+            <p class="empty-note">격리 이미지가 없습니다.</p>
+        {% endif %}
+
+        {% for group, items in grouped.items() %}
+            <div class="failed-section">
+                <h2 class="group-title">📁 {{ group }}</h2>
+                {% call ui.gallery_grid() %}
+                    {% for item in items %}
+                        <div>
+                            <img src="/quarantine_img/{{ item.rel_path }}" class="thumb" alt="{{ item.filename }}">
+                            <div class="thumb-meta">
+                                {{ item.label }}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endcall %}
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}모델 카테고리{% endblock %}
+
+{% block main_attrs %} class="collections-page"{% endblock %}
+
+{% block content %}
+    <div class="page-shell">
+        <h1 class="page-title">모델 카테고리</h1>
+
+        <section class="split-layout">
+            <div class="split-panel">
+                <h2>새 카테고리 생성</h2>
+                <form method="post" action="{{ url_for('gallery.model_categories_create_form') }}" class="form-stack form-stack--spaced">
+                    <label for="name">이름</label>
+                    <input type="text" name="name" id="name" required>
+                    <label for="parent_id">부모 카테고리 (선택 사항)</label>
+                    <select name="parent_id" id="parent_id">
+                        <option value="">(루트)</option>
+                        {% for opt in category_options or [] %}
+                        <option value="{{ opt.id }}">{{ '— ' * opt.depth }}{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">추가</button>
+                    {% if error_message %}<span class="form-message form-message--error">{{ error_message }}</span>{% endif %}
+                    {% if created_id %}<span class="form-message form-message--success">카테고리가 생성되었습니다.</span>{% endif %}
+                </form>
+            </div>
+
+            <div class="split-panel">
+                <h2>카테고리 트리</h2>
+                <ul>
+                    {% macro render_tree(nodes) -%}
+                        {%- for node in nodes %}
+                            <li>
+                                <strong>{{ node.name }}</strong> ({{ node.model_count }}개)
+                                [<a href="{{ url_for('gallery.index', model_category_id=node.id) }}">갤러리</a>]
+                                [<a href="{{ url_for('gallery.model_category_detail_page', category_id=node.id) }}">세부</a>]
+                                {% if node.children %}
+                                    <ul>
+                                        {{ render_tree(node.children) }}
+                                    </ul>
+                                {% endif %}
+                            </li>
+                        {%- endfor %}
+                    {%- endmacro %}
+                    {{ render_tree(category_tree or []) }}
+                </ul>
+            </div>
+        </section>
+
+        {% if current_category %}
+        <hr>
+        <div id="model-category-actions" hidden
+            data-rename-url="{{ url_for('gallery.api_rename_model_category', category_id=current_category.id) }}"
+            data-delete-url="{{ url_for('gallery.api_delete_model_category', category_id=current_category.id) }}"
+            data-add-url="{{ url_for('gallery.api_add_model_category_model', category_id=current_category.id) }}"
+            data-remove-url="{{ url_for('gallery.api_remove_model_category_model', category_id=current_category.id) }}"
+            data-back-url="{{ url_for('gallery.model_categories_page') }}"></div>
+        <h2>{{ current_category.name }} ({{ current_category.id }})</h2>
+        <p>생성일: {{ current_category.created_at }}</p>
+        <p>부모: {{ current_category.parent_id or '루트' }}</p>
+        <p><a href="{{ url_for('gallery.index', model_category_id=current_category.id) }}">이 카테고리로 필터링</a></p>
+
+        <section class="split-layout">
+            <div class="split-panel split-panel--narrow">
+                <h3>하위 카테고리</h3>
+                <ul>
+                    {% for child in current_children or [] %}
+                    <li>
+                        <strong>{{ child.name }}</strong>
+                        [<a href="{{ url_for('gallery.model_category_detail_page', category_id=child.id) }}">열기</a>]
+                        [<a href="{{ url_for('gallery.index', model_category_id=child.id) }}">필터</a>]
+                    </li>
+                    {% else %}
+                    <li>하위 카테고리가 없습니다.</li>
+                    {% endfor %}
+                </ul>
+
+                <h4>새 하위 카테고리 생성</h4>
+                <form method="post" action="{{ url_for('gallery.model_categories_create_form') }}" class="form-stack">
+                    <input type="hidden" name="parent_id" value="{{ current_category.id }}">
+                    <label for="child_name">이름</label>
+                    <input type="text" id="child_name" name="name" required>
+                    <button type="submit">추가</button>
+                </form>
+            </div>
+            <div class="split-panel split-panel--narrow">
+                <h3>부모 이동 / 이름 변경</h3>
+                <form id="move-category-form" class="form-stack">
+                    <label for="rename_input">새 이름</label>
+                    <input type="text" id="rename_input" name="name" value="{{ current_category.name }}">
+                    <label for="move_parent">새 부모</label>
+                    <select id="move_parent" name="parent_id">
+                        <option value="">(루트)</option>
+                        {% for opt in category_options or [] %}
+                            {% if opt.id != current_category.id %}
+                            <option value="{{ opt.id }}" {% if opt.id == current_category.parent_id %}selected{% endif %}>{{ '— ' * opt.depth }}{{ opt.label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                    <button type="submit">저장</button>
+                </form>
+                <p class="panel-actions">
+                    <button id="delete-current" data-id="{{ current_category.id }}" class="btn-danger-outline">이 카테고리 삭제</button>
+                </p>
+            </div>
+        </section>
+
+        <h3>모델 매핑</h3>
+        <form id="assign-model-form" class="inline-form inline-form--center">
+            <input type="text" id="assign-model-input" list="model-names" placeholder="모델 이름 입력" required>
+            <datalist id="model-names">
+                {% for name in models or [] %}
+                <option value="{{ name }}"></option>
+                {% endfor %}
+            </datalist>
+            <button type="submit">추가</button>
+        </form>
+
+        <ul id="assigned-model-list">
+            {% for item in model_items or [] %}
+            <li>
+                {{ item.model_name }}
+                <button type="button" class="remove-model" data-name="{{ item.model_name }}">삭제</button>
+            </li>
+            {% else %}
+            <li>연결된 모델이 없습니다.</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
+    {% if current_category %}
+    <script src="{{ url_for('static', filename='js/model_categories.js') }}"></script>
+    {% endif %}
+{% endblock %}

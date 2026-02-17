@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}MyGallery{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="data:,">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body{% block body_attrs %}{% endblock %}>
+    {% block nav %}
+    <nav class="global-nav">
+        <div class="global-nav__links">
+            <a href="{{ url_for('gallery.index') }}">🏠 갤러리</a>
+            <a href="{{ url_for('gallery.prompts_page') }}">🧾 프롬프트</a>
+            <a href="{{ url_for('gallery.tags_page') }}">🏷 태그</a>
+            <a href="{{ url_for('stats.stats_page') }}">📊 통계</a>
+            <a href="{{ url_for('gallery.collections_page') }}">📁 모음집</a>
+            <a href="{{ url_for('gallery.model_categories_page') }}">🧠 모델</a>
+            <a href="{{ url_for('trash.trash_page') }}">🗑 휴지통</a>
+            <a href="{{ url_for('failed.failed_page') }}">❌ 실패</a>
+            <a href="{{ url_for('quarantine.quarantine_page') }}">🚧 격리</a>
+        </div>
+        <div class="global-nav__actions">
+            <button type="button"
+                    class="theme-toggle"
+                    data-theme-toggle
+                    data-label-light="라이트"
+                    data-label-dark="다크"
+                    data-icon-light="🌞"
+                    data-icon-dark="🌙"
+                    aria-pressed="false"
+                    aria-label="테마 전환">
+                <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">🌙</span>
+                <span class="theme-toggle__label" data-theme-label>다크</span>
+            </button>
+        </div>
+    </nav>
+    {% endblock %}
+
+    {% block main %}
+    <main{% block main_attrs %}{% endblock %}>
+        {% block content %}{% endblock %}
+    </main>
+    {% endblock %}
+
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% import "partials/_ui_macros.html" as ui %}
+
+{% block title %}실패 이미지{% endblock %}
+
+{% block body_attrs %} class="page-failed"{% endblock %}
+
+{% block content %}
+<div class="page-shell">
+    <h1 class="page-title">❌ 실패한 이미지</h1>
+
+    <div class="failed-actions">
+        <button type="button" id="failed-restore-all-btn">⚡ failed 전체 복구</button>
+        <div class="failed-restore-progress">
+            <div id="failed-restore-progress-bar"></div>
+        </div>
+        <div class="failed-restore-status" id="failed-restore-status">대기 중</div>
+    </div>
+
+    {% for date, files in grouped.items() %}
+    <div class="failed-section">
+        <h3>{{ date }}</h3>
+        {% call ui.gallery_grid() %}
+            {% for item in files %}
+            <div class="gallery-item">
+                <img src="/failed_img/{{ date }}/{{ item.rel_path }}" class="thumb">
+                <div class="missing-info">
+                    <div class="missing-title">{{ item.label }}</div>
+                    {% set failed_type = item.filename.split('(failed')[-1].split(')')[0] %}
+                    {% if failed_type == 'TP' %}
+                        텍스트 인코더/토큰빌더 실패
+                    {% elif failed_type == 'A' %}
+                        실패 유형: 전체
+                    {% else %}
+                        {% set parts = failed_type %}
+                        {% set missing_parts = [] %}
+                        {% if 'P' in parts %} {% set _ = missing_parts.append('긍정') %} {% endif %}
+                        {% if 'N' in parts %} {% set _ = missing_parts.append('부정') %} {% endif %}
+                        {% if 'M' in parts %} {% set _ = missing_parts.append('모델') %} {% endif %}
+                        실패 유형: {{ missing_parts | join(', ') }}
+                    {% endif %}
+                </div>
+                <div class="gallery-actions">
+                    <button type="button" data-action="failed-restore" data-date="{{ date }}" data-path="{{ item.rel_path }}">복구</button>
+                    <button type="button" data-action="failed-delete" data-date="{{ date }}" data-path="{{ item.rel_path }}" class="btn-danger">영구 삭제</button>
+                </div>
+            </div>
+            {% endfor %}
+        {% endcall %}
+    </div>
+    {% endfor %}
+
+    {{ ui.toast_container() }}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/failed.js') }}"></script>
+{% endblock %}

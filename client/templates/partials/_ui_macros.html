@@ -1,0 +1,47 @@
+{% macro toast_container(aria_live=None) -%}
+<div id="toast-container"{% if aria_live %} aria-live="{{ aria_live }}"{% endif %}></div>
+{%- endmacro %}
+
+{% macro gallery_grid(class_name="gallery") -%}
+<div class="{{ class_name }}">
+    {{ caller() }}
+</div>
+{%- endmacro %}
+
+{% macro modal_header_actions(close_id=None, close_label="닫기", close_class="close") -%}
+<div class="modal-header">
+    <div class="modal-actions modal-actions-main">
+        {{ caller() }}
+    </div>
+    <button type="button" class="{{ close_class }}"{% if close_id %} id="{{ close_id }}"{% endif %} aria-label="{{ close_label }}">&times;</button>
+</div>
+{%- endmacro %}
+
+{% macro modal_media() -%}
+<div class="modal-media">
+    {{ caller() }}
+</div>
+{%- endmacro %}
+
+{% macro modal_info_panel(side_class, aria_label, title) -%}
+<section class="modal-info-panel {{ side_class }}" aria-label="{{ aria_label }}">
+    <div class="modal-info-header">{{ title }}</div>
+    <div class="modal-info-scroll">
+        {{ caller() }}
+    </div>
+</section>
+{%- endmacro %}
+
+{% macro modal_root(id, class_name="modal", extra_attrs="") -%}
+<div id="{{ id }}" class="{{ class_name }}"{% if extra_attrs %} {{ extra_attrs|safe }}{% endif %}>
+    {{ caller() }}
+</div>
+{%- endmacro %}
+
+{% macro modal_shell(id, class_name="modal", content_id=None, extra_attrs="") -%}
+<div id="{{ id }}" class="{{ class_name }}"{% if extra_attrs %} {{ extra_attrs|safe }}{% endif %}>
+    <div class="modal-content"{% if content_id %} id="{{ content_id }}"{% endif %}>
+        {{ caller() }}
+    </div>
+</div>
+{%- endmacro %}

@@ -1,0 +1,656 @@
+{% extends "base.html" %}
+{% import "partials/_ui_macros.html" as ui %}
+
+{% block title %}마이갤러리{% endblock %}
+
+{% block nav %}{% endblock %}
+
+{% block body_attrs %} class="page-gallery"{% endblock %}
+
+{% block content %}
+<h1>마이갤러리</h1>
+    <div class="top-nav-collections">
+        <div class="nav-links nav-links--grouped">
+            <div class="nav-row nav-row-primary">
+                <a href="{{ url_for('gallery.index', media='all', q=query, match=match, sort=sort, limit=limit, model=selected_models, model_match=selected_model_match, sampler=selected_sampler, seed=seed, steps=steps, collection_id=selected_collection_ids or None, collection_match=selected_collection_match) }}" class="media-link {% if media=='all' %}active{% endif %}" data-media="all">🏠 All</a>
+            </div>
+            <div class="nav-row nav-row-secondary">
+                <div class="nav-group nav-group-media">
+                    <a href="{{ url_for('gallery.index', media='images', q=query, match=match, sort=sort, limit=limit, model=selected_models, model_match=selected_model_match, sampler=selected_sampler, seed=seed, steps=steps, collection_id=selected_collection_ids or None, collection_match=selected_collection_match) }}" class="media-link {% if media=='images' %}active{% endif %}" data-media="images">🖼 Images</a>
+                    <a href="{{ url_for('gallery.index', media='videos', q=query, match=match, sort=sort, limit=limit, model=selected_models, model_match=selected_model_match, sampler=selected_sampler, seed=seed, steps=steps, collection_id=selected_collection_ids or None, collection_match=selected_collection_match) }}" class="media-link {% if media=='videos' %}active{% endif %}" data-media="videos">🎞 Videos</a>
+                </div>
+                <span class="nav-divider" aria-hidden="true">/</span>
+                <div class="nav-group nav-group-data">
+                    <a href="/prompts" class="media-link">🧾 프롬프트</a>
+                    <a href="/tags" class="media-link">🏷 태그</a>
+                    <a href="{{ url_for('gallery.collections_page') }}" class="media-link">📁 모음집</a>
+                </div>
+            </div>
+        </div>
+        <div class="collection-dropdown">
+            <span class="collection-filter-label">모음집:</span>
+            <div id="collection-filter-summary" class="collection-filter-summary" aria-live="polite"></div>
+            <button type="button" id="open-filter-panel-secondary" class="collection-manage-btn">🧭 필터</button>
+            <button type="button" id="clear-active-filters" class="collection-manage-btn">🧹 필터 초기화</button>
+            <button type="button" id="open-collection-panel" class="collection-manage-btn">⚙ 관리</button>
+        </div>
+    </div>
+
+    <!-- ⚙ 설정/빠른 이동 버튼 -->
+    <div class="top-nav-actions">
+        <button type="button"
+                class="settings-icon top-nav-theme-toggle"
+                data-theme-toggle
+                data-label-light="Light"
+                data-label-dark="Dark"
+                data-icon-light="🌞"
+                data-icon-dark="🌙"
+                aria-pressed="false"
+                aria-label="Theme toggle">
+            <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">🌙</span>
+        </button>
+        <div class="profile-menu" id="profile-menu">
+            <button id="profile-menu-toggle" class="settings-icon profile-menu-toggle" aria-label="프로필 메뉴" aria-haspopup="true" aria-expanded="false">👤</button>
+            <div id="profile-menu-panel" class="profile-menu-panel" role="menu" aria-label="프로필 메뉴">
+                <button id="settings-btn" class="profile-menu-item" aria-label="설정">⚙ 설정</button>
+                <a href="/trash" class="profile-menu-item top-nav-link" aria-label="휴지통 보기" title="휴지통 보기">🗑 휴지통</a>
+                <a href="/failed" class="profile-menu-item top-nav-link" aria-label="실패 이미지 보기" title="실패 이미지 보기">🚫 실패</a>
+                <a href="/quarantine" class="profile-menu-item top-nav-link" aria-label="손실 이미지 보기" title="손실 이미지 보기">🕳️ 격리</a>
+            </div>
+        </div>
+    </div>
+
+    {% if selected_collection_summary %}
+    <p class="text-center">현재 모음집 필터: <strong>{{ selected_collection_summary }}</strong>{% if selected_collection and selected_collection.item_count is not none %} ({{ selected_collection.item_count }}개){% endif %}</p>
+    {% endif %}
+
+    <!-- 검색 폼 -->
+    <form method="GET" id="search-form" autocomplete="off">
+        <input type="hidden" name="media" value="{{ media }}">
+        <div id="collection-hidden-inputs">
+            {% for cid in selected_collection_ids %}
+            <input type="hidden" name="collection_id" value="{{ cid }}">
+            {% endfor %}
+        </div>
+
+        <div class="search-row primary-row">
+            <div class="search-main">
+                <input type="hidden" name="match" id="search-match-input" value="{{ match }}">
+                <input type="hidden" name="tag_source" id="search-tag-source" value="{{ tag_source }}">
+                <div class="search-toggle" role="group" aria-label="태그/프롬프트 선택">
+                    <button type="button" class="toggle-btn" data-tag-source="prompt">프롬프트</button>
+                    <button type="button" class="toggle-btn" data-tag-source="booru">태그</button>
+                </div>
+                <div class="search-toggle" role="group" aria-label="검색 논리 선택">
+                    <button type="button" class="toggle-btn" data-match="and">AND</button>
+                    <button type="button" class="toggle-btn" data-match="or">OR</button>
+                </div>
+                <div class="search-query-wrap">
+                    <input type="text" name="q" id="search-input" placeholder="예: cyberpunk, 1girl" value="{{ query }}">
+                    <button type="button" id="clear-search" title="검색어 초기화" aria-label="검색어 초기화">✕</button>
+                </div>
+            </div>
+            <div class="search-buttons">
+                <button type="submit" name="action" value="search">검색</button>
+                <button type="button" id="random-recommend-top">🎲 랜덤 추천</button>
+            </div>
+        </div>
+
+        <div id="filter-panel" class="filter-panel-backdrop" aria-hidden="true">
+            <div class="filter-panel">
+                <div class="filter-panel-header">
+                    <div class="filter-panel-title">필터</div>
+                    <button type="button" id="close-filter-panel" class="filter-close-btn" aria-label="필터 닫기">✕</button>
+                </div>
+                <div class="filter-panel-body">
+                    <!-- ✅ 모델 필터 -->
+                    <div class="filter-chip-panel">
+                        <div class="filter-chip-header">
+                            <div class="filter-chip-title">모델 필터</div>
+                            <div class="filter-chip-actions">
+                                <div class="filter-logic-control">
+                                    <label for="model-match-select">논리</label>
+                                    <select id="model-match-select" name="model_match">
+                                        <option value="and" {% if selected_model_match == "and" %}selected{% endif %}>AND</option>
+                                        <option value="or" {% if selected_model_match == "or" %}selected{% endif %}>OR</option>
+                                    </select>
+                                </div>
+                                <input type="text" id="model-filter-search" placeholder="모델 검색" aria-label="모델 검색">
+                                <button type="button" id="model-filter-clear">전체 해제</button>
+                            </div>
+                        </div>
+                        <div id="model-chip-list" class="filter-chip-list" data-models='{{ models|tojson }}' data-selected='{{ selected_models|tojson }}'></div>
+                        <div id="model-hidden-inputs">
+                            {% for m in selected_models %}
+                            <input type="hidden" name="model" value="{{ m }}">
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="filter-chip-panel">
+                        <div class="filter-chip-header">
+                            <div class="filter-chip-title">모음집 필터</div>
+                            <div class="filter-chip-actions">
+                                <div class="filter-logic-control">
+                                    <label for="collection-match-select">논리</label>
+                                    <select id="collection-match-select" name="collection_match">
+                                        <option value="and" {% if selected_collection_match == "and" %}selected{% endif %}>AND</option>
+                                        <option value="or" {% if selected_collection_match == "or" %}selected{% endif %}>OR</option>
+                                    </select>
+                                </div>
+                                <input type="text" id="collection-filter-search" placeholder="모음집 검색" aria-label="모음집 검색">
+                                <button type="button" id="collection-filter-clear">전체 해제</button>
+                            </div>
+                        </div>
+                        <div id="collection-chip-list" class="filter-chip-list"></div>
+                    </div>
+
+                    <div class="filter-input-group">
+                        <label for="sampler-input">Sampler</label>
+                        <input id="sampler-input" type="text" name="sampler" placeholder="예: Euler a" value="{{ selected_sampler }}">
+                    </div>
+                    <div class="filter-input-group">
+                        <label for="seed-input">Seed</label>
+                        <input id="seed-input" type="text" name="seed" placeholder="Seed" value="{{ seed }}">
+                    </div>
+                    <div class="filter-input-group">
+                        <label for="steps-input">Steps</label>
+                        <input id="steps-input" type="text" name="steps" placeholder="Steps" value="{{ steps }}">
+                    </div>
+                </div>
+                <div class="filter-panel-footer">
+                    <button type="submit" name="action" value="search" class="filter-apply-btn">필터 적용</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- 자동완성 -->
+    <div id="autocomplete-box" class="autocomplete-list is-hidden"></div>
+
+    <!-- 최근 검색어 -->
+    <div class="search-history" id="search-history"></div>
+
+        
+{% if results %}
+    {% if total_results is none %}
+    <h2 id="result-count">결과 집계 중...</h2>
+    {% elif media == 'videos' %}
+    <h2 id="result-count">결과 {{ total_results }}개 (🖼️ 0개 / 🎞 {{ total_results }}개)</h2>
+    {% elif media == 'images' %}
+    <h2 id="result-count">결과 {{ total_results }}개 (🖼️ {{ total_results }}개 / 🎞 0개)</h2>
+    {% else %}
+    {% set images_total = total_results - videos_total %}
+    <h2 id="result-count">결과 {{ total_results }}개 (🖼️ {{ images_total }}개 / 🎞 {{ videos_total }}개)</h2>
+    {% endif %}
+{% else %}
+    <h2 id="result-count">검색 결과가 없습니다. (🖼️ 0개 / 🎞 0개)</h2>
+{% endif %}
+
+        <!-- ✅ 상단 페이지네이션 -->
+        <div class="pagination-toolbar">
+            <div id="pagination-top" class="pagination"></div>
+            <div class="pagination-filters">
+                <select name="sort" form="search-form" aria-label="정렬">
+                    <option value="desc" {% if sort == "desc" %}selected{% endif %}>최신순</option>
+                    <option value="asc" {% if sort == "asc" %}selected{% endif %}>오래된순</option>
+                </select>
+                <select name="limit" form="search-form" aria-label="표시 개수">
+                    <option value="20" {% if limit == 20 %}selected{% endif %}>20개 보기</option>
+                    <option value="50" {% if limit == 50 %}selected{% endif %}>50개 보기</option>
+                    <option value="100" {% if limit == 100 %}selected{% endif %}>100개 보기</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ✅ 멀티 선택 툴바 -->
+        <div id="selection-toolbar" class="selection-toolbar hidden">
+            <span id="selection-count">0개 선택됨</span>
+                <div class="selection-actions">
+                <div class="selection-collection">
+                    <select id="add-to-collection-select">
+                        <option value="">모음집 선택</option>
+                        {% for opt in collection_options %}
+                        <option value="{{ opt.id }}">{{ '— ' * opt.depth }}{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button id="selection-add" type="button" class="selection-add">📁 모음집에 추가</button>
+                    <button id="selection-remove" type="button" class="selection-remove">➖ 모음집에서 제거</button>
+                </div>
+                <div class="selection-download">
+                    <select id="selection-download-scale" title="다운로드 축소 배율 (GIF는 변환 시 애니메이션이 사라질 수 있어 원본으로 다운로드됩니다)">
+                        <option value="1">1x (원본)</option>
+                        <option value="0.5">0.5x</option>
+                        <option value="0.25">0.25x</option>
+                        <option value="0.125">0.125x</option>
+                    </select>
+                    <button id="selection-download" type="button" class="selection-download-btn">⬇️ 일괄 다운로드</button>
+                </div>
+                <div class="selection-tags">
+                    <div class="selection-booru-input-wrap">
+                        <input id="selection-booru-tags" type="text" placeholder="Danbooru 태그 (공백/쉼표 구분)">
+                        <div id="selection-booru-suggestions" class="booru-tag-suggestions"></div>
+                    </div>
+                    <button id="selection-booru-add" type="button" class="selection-booru-add">🏷 태그 일괄 추가</button>
+                    <button id="selection-booru-remove" type="button" class="selection-booru-remove">🧹 태그 일괄 삭제</button>
+                </div>
+                <button id="selection-compare" type="button" class="selection-compare">📊 이미지 비교</button>
+                <button id="selection-delete" type="button" class="selection-delete">🗑 선택 삭제</button>
+                <button id="selection-cancel" type="button" class="selection-cancel">취소</button>
+            </div>
+        </div>
+
+        {% set collection_label_map = namespace(data={}) %}
+        {% for opt in collection_options %}
+        {% set _ = collection_label_map.data.update({opt.id: opt.label}) %}
+        {% endfor %}
+
+        {% macro render_collection_badges(collections, label_map) %}
+            {% if collections %}
+                {% set mapping_items = collections | select('mapping') | list %}
+                {% if mapping_items %}
+                    {% set group_map = namespace(data={}) %}
+                    {% for col in mapping_items %}
+                        {# label: "1 / 2 / 03" 같은 전체 경로 라벨 #}
+                        {% set label = (col.label if col.label is defined else '') or label_map.data.get(col.id) or col.name %}
+                        {# root_label: "1" 같은 최상위 루트 #}
+                        {% set root_label = (label.split(' / ')[0] if label and (' / ' in label) else (label or '모음집')) %}
+
+                        {% if root_label not in group_map.data %}
+                            {% set _ = group_map.data.update({root_label: {'root_label': root_label, 'paths': []} }) %}
+                        {% endif %}
+
+                        {# 같은 경로 중복 방지 #}
+                        {% if label and (label not in group_map.data[root_label]['paths']) %}
+                            {% set _ = group_map.data[root_label]['paths'].append(label) %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if group_map.data %}
+                    <div class="collection-badges">
+                        {% for group in group_map.data.values() %}
+                            {% set all_paths = group['paths']|sort %}
+                            {% set leaf_paths = [] %}
+
+                            {% for p in all_paths %}
+                              {% set ns = namespace(is_prefix=false) %}
+                              {% for q in all_paths %}
+                                {% if q != p and q.startswith(p ~ ' / ') %}
+                                  {% set ns.is_prefix = true %}
+                                {% endif %}
+                              {% endfor %}
+                              {% if not ns.is_prefix %}
+                                {% set _ = leaf_paths.append(p) %}
+                              {% endif %}
+                            {% endfor %}
+
+                            {% set cnt = leaf_paths|length %}
+                            <span class="collection-badge">
+                                {{ group['root_label'] }}{% if cnt > 1 %} +{{ cnt }}{% endif %}
+                                <div class="collection-tooltip">
+                                    <ul class="collection-tooltip__list">
+                                        {% for p in leaf_paths %}
+                                        <li>{{ p }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                {% else %}
+                    <div class="collection-badges" title="{{ collections | join(', ') }}">
+                        {% for col in collections %}
+                        <span class="collection-badge">{{ col }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endif %}
+        {% endmacro %}
+
+        <!-- 갤러리 -->
+        {% call ui.gallery_grid() %}
+            {% for item in results %}
+                {% set sound_flag = (item.sound|string)|trim %}
+                {% set has_sound = sound_flag.lower() in ['y', 'yes', 'true', '1'] %}
+                {% set is_audio = item.media == 'video' and has_sound %}
+                {% set is_gif = item.is_gif or (item.file and item.file.lower().endswith('.gif')) %}
+                <div class="gallery-item">
+                    <img src="/thumb?path={{ item.img }}"
+                         class="thumb{% if item.media=='video' %} video{% endif %}{% if is_audio %} audio{% elif is_gif %} gif{% endif %}"
+                         data-path="{{ item.file }}"
+                         data-media="{{ item.media }}"
+                         alt="thumbnail"
+                         loading="lazy"
+                         data-index="{{ loop.index0 }}">
+                    {{ render_collection_badges(item.collections, collection_label_map) }}
+                </div>
+            {% endfor %}
+        {% endcall %}
+
+        <!-- ✅ 하단 페이지네이션 -->
+        <div id="pagination-bottom" class="pagination"></div>
+
+    <!-- 이미지 모달 -->
+    {% call ui.modal_root("modal") %}
+        <button type="button" id="modal-prev" class="nav-button left">&#9664;</button>
+        <div class="modal-content">
+            {% call ui.modal_header_actions(close_id="modal-close") %}
+                <button id="modal-expand-toggle" type="button" class="modal-action-btn">🖼 크게 보기</button>
+                <div class="modal-actions" id="image-controls">
+                    <button id="show-exif" class="modal-action-btn">📷 EXIF 보기</button>
+                    <button id="copy-exif" class="modal-action-btn">📋 EXIF 복사</button>
+                    <div class="modal-download-group">
+                        <button id="download-no-exif" class="modal-action-btn image-only-action" title="EXIF를 제거하고 다운로드 (파일명 비우면 랜덤 생성, GIF는 exiftool로 메타데이터 제거하며 실패 시 오류가 반환됩니다)">⬇ EXIF 제거 다운로드</button>
+                        <select id="modal-download-scale" class="modal-download-scale image-only-action" title="다운로드 축소 배율 (GIF는 변환 시 애니메이션이 사라질 수 있어 원본으로 다운로드됩니다)">
+                            <option value="1">1x (원본)</option>
+                            <option value="0.5">0.5x</option>
+                            <option value="0.25">0.25x</option>
+                            <option value="0.125">0.125x</option>
+                        </select>
+                    </div>
+                    <button type="button" class="modal-action-btn modal-action-danger modal-delete-action">🗑 삭제</button>
+                </div>
+                <button type="button" id="paired-media-toggle" class="modal-action-btn is-hidden">🖼 페어링 이미지 보기</button>
+                <button type="button" id="random-recommend" class="modal-action-btn modal-action-random">🎲 랜덤 추천</button>
+                <button type="button" id="related-content-toggle" class="modal-action-btn modal-action-related">🔗 연관 콘텐츠</button>
+            {% endcall %}
+            <div class="modal-body">
+                {% call ui.modal_info_panel("modal-info-panel-left", "생성 정보", "🧾 생성 정보") %}
+                    <dl class="modal-meta-table">
+                        <dt>✅ 긍정</dt>
+                        <dd id="modal-positive"></dd>
+
+                        <dt>❌ 부정</dt>
+                        <dd id="modal-negative"></dd>
+
+                        <dt>📐 크기</dt>
+                        <dd id="modal-size"></dd>
+
+                        <dt>🌱 Seed</dt>
+                        <dd id="modal-seed"></dd>
+
+                        <dt>🧪 Sampler</dt>
+                        <dd id="modal-sampler"></dd>
+
+                        <dt>🖼 모델</dt>
+                        <dd id="modal-model"></dd>
+
+                        <dt>🎛 CFG</dt>
+                        <dd id="modal-cfg"></dd>
+
+                        <dt>🧬 프로필</dt>
+                        <dd id="modal-profiles" class="profile-list"></dd>
+                    </dl>
+                    <div id="exif-box" class="modal-exif-box"></div>
+                {% endcall %}
+                {% call ui.modal_media() %}
+                    <div class="modal-media-date" title="생성일">📅 <span id="modal-date"></span></div>
+                    <img id="modal-image" src="">
+                    <video id="modal-video" class="modal-video is-hidden" controls autoplay loop muted playsinline></video>
+                {% endcall %}
+                {% call ui.modal_info_panel("modal-info-panel-right", "Danbooru 태그", "🏷 Danbooru 태그") %}
+                    <div class="booru-tags-section">
+                        <div class="booru-tags-toolbar">
+                            <div class="booru-tags-input-row">
+                                <div class="booru-tag-input-wrap">
+                                    <input id="booru-tag-input" type="text" placeholder="태그 검색..." autocomplete="off">
+                                    <div id="booru-tag-suggestions" class="booru-tag-suggestions is-hidden"></div>
+                                </div>
+                                <button id="booru-tag-add" type="button" class="booru-tag-add">추가</button>
+                                <button id="booru-tag-auto" type="button" class="booru-tag-auto">자동 태깅</button>
+                            </div>
+                            <div class="booru-rating-row">
+                                <div class="booru-rating-label">Rating</div>
+                                <select id="booru-rating-select">
+                                    <option value="">미정</option>
+                                    <option value="0">0 · general</option>
+                                    <option value="1">1 · sensitive</option>
+                                    <option value="2">2 · questionable</option>
+                                    <option value="3">3 · explicit</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="booru-tags-groups" class="booru-tags-groups"></div>
+                    </div>
+                {% endcall %}
+            </div>
+            <div id="modal-related-scrim" class="modal-related-scrim" aria-hidden="true"></div>
+            <aside id="modal-related-panel" class="modal-related-panel" aria-hidden="true">
+                <div class="modal-related-header">
+                    <div class="modal-related-title">
+                        <strong>연관 콘텐츠</strong>
+                        <span id="modal-related-meta" class="modal-related-meta"></span>
+                    </div>
+                    <button type="button" id="modal-related-close" class="modal-related-close">닫기</button>
+                </div>
+                    <div class="modal-related-controls">
+                        <label class="modal-related-range" for="related-distance">
+                            <span>유사도</span>
+                            <input type="range" id="related-distance" min="0" max="12" step="1" value="0">
+                            <span id="related-distance-value" class="modal-related-value">0</span>
+                        </label>
+                        <div class="modal-related-filters">
+                            <label class="modal-related-filter">
+                                <input type="checkbox" id="related-filter-images" checked>
+                                <span>이미지</span>
+                            </label>
+                            <label class="modal-related-filter">
+                                <input type="checkbox" id="related-filter-videos" checked>
+                                <span>영상</span>
+                            </label>
+                            <label class="modal-related-filter">
+                                <input type="checkbox" id="related-filter-pairs">
+                                <span>영상 페어링 이미지</span>
+                            </label>
+                        </div>
+                    </div>
+                <div id="modal-related-list" class="modal-related-list"></div>
+            </aside>
+            <div id="modal-video-error" class="modal-video-error is-hidden" role="status" aria-live="polite"></div>
+        </div>
+        <button type="button" id="modal-next" class="nav-button right">&#9654;</button>
+    {% endcall %}
+
+    {% include "partials/_compare_modal.html" %}
+
+    <!-- 설정 모달 -->
+    {% call ui.modal_root("settings-modal") %}
+        <div class="modal-content">
+            <button type="button" id="settings-close" class="close" aria-label="닫기">&times;</button>
+            <h2>⚙ 설정</h2>
+            <div class="settings-tabs" role="tablist" aria-label="설정 탭">
+                <button type="button" class="settings-tab-button active" role="tab" aria-selected="true" data-tab-target="settings-general">일반</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-server">서버 설정</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-tags">태그 설정</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-advanced">고급 모드</button>
+            </div>
+            <div class="settings-tab-panels">
+                <div class="settings-tab-panel active" role="tabpanel" id="settings-general">
+                    <form class="settings-form">
+                        <button type="button" id="btn-gallery-update" class="settings-action-btn settings-action-btn--purple">
+                            ⬇️ 갤러리 업데이트
+                        </button>
+                    </form>
+                    <p id="update-restart-required" class="settings-note settings-note--warn is-hidden">
+                        ⚠️ 업데이트가 적용되었습니다. 서버 재시작이 필요합니다.
+                    </p>
+                    <form class="settings-form">
+                        <button type="button" id="btn-booru-dict-update" class="settings-action-btn settings-action-btn--teal">
+                            🏷 Danbooru 태그DB 업데이트
+                        </button>
+                    </form>
+                    <div id="booru-dict-status" class="settings-status">
+                        태그DB 상태: 로드 중...
+                    </div>
+                    <form class="settings-form">
+                        <button type="button" id="btn-runtime-ffmpeg-install" class="settings-action-btn settings-action-btn--teal">
+                            🎬 FFmpeg/FFprobe 설치
+                        </button>
+                    </form>
+                    <form class="settings-form">
+                        <button type="button" id="btn-runtime-exiftool-install" class="settings-action-btn settings-action-btn--teal">
+                            🧷 ExifTool 설치
+                        </button>
+                    </form>
+                    <form class="settings-form settings-form-inline">
+                        <select id="runtime-wd14-model" class="settings-inline-select" aria-label="WD14 모델 선택">
+                            <option value="wd-swinv2-tagger-v3">wd-swinv2-tagger-v3 (권장)</option>
+                            <option value="wd-eva02-large-tagger-v3">wd-eva02-large-tagger-v3</option>
+                        </select>
+                        <button type="button" id="btn-runtime-wd14-install" class="settings-action-btn settings-action-btn--teal">
+                            🧠 WD14 모델 설치
+                        </button>
+                    </form>
+                    <div id="runtime-assets-status" class="settings-status">
+                        런타임 도구 상태: 로드 중...
+                    </div>
+                    <p class="settings-hint">설치가 완료되면 관련 경로가 .env에 자동 저장됩니다.</p>
+                    <form method="POST" action="/restart" class="settings-form" id="restart-form">
+                       <button type="submit" class="settings-action-btn settings-action-btn--blue">
+                           ♻ 서버 재시작
+                        </button>
+                    </form>
+                    <p id="restart-msg" class="settings-note settings-note--info is-hidden">
+                        서버 재시작 중... 잠시만 기다려 주세요.
+                    </p>
+                    <form class="settings-form">
+                        <button type="button" id="clear-history" class="settings-action-btn settings-action-btn--gray">
+                            🧹 검색기록 삭제
+                        </button>
+                    </form>
+                </div>
+                <div class="settings-tab-panel" role="tabpanel" id="settings-server">
+                    <div class="settings-section">
+                        <div class="env-settings-header">
+                            <h3>🧪 환경설정(.env)</h3>
+                        </div>
+                        <p class="settings-hint">
+                            서버 설정은 화이트리스트 키만 안전하게 수정합니다.
+                        </p>
+                        <div id="env-server-groups" class="env-basic-groups"></div>
+                        <div class="env-settings-actions">
+                            <button type="button" id="env-server-save" class="env-save-button">
+                                💾 설정 저장
+                            </button>
+                            <span id="env-server-status" class="env-settings-status"></span>
+                        </div>
+                        <div id="env-server-restart-banner" class="env-restart-banner" hidden>
+                            <div>
+                                저장이 완료되었습니다. 변경 사항 적용을 위해 서버 재시작이 필요합니다.
+                            </div>
+                            <button type="button" id="env-restart-btn" class="env-restart-button">재시작</button>
+                        </div>
+                        <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                    </div>
+                </div>
+                <div class="settings-tab-panel" role="tabpanel" id="settings-tags">
+                    <div class="settings-section">
+                        <div class="env-settings-header">
+                            <h3>🏷 태그 설정</h3>
+                        </div>
+                        <p class="settings-hint">
+                            WD14 자동 태깅에 사용하는 모델/임계값을 조정합니다.
+                        </p>
+                        <div id="env-tags-groups" class="env-basic-groups"></div>
+                        <div class="env-settings-actions">
+                            <button type="button" id="env-tags-save" class="env-save-button">
+                                💾 설정 저장
+                            </button>
+                            <span id="env-tags-status" class="env-settings-status"></span>
+                        </div>
+                        <div id="env-tags-restart-banner" class="env-restart-banner" hidden>
+                            <div>
+                                저장이 완료되었습니다. 변경 사항 적용을 위해 서버 재시작이 필요합니다.
+                            </div>
+                            <button type="button" class="env-restart-button" data-restart-url="/restart">재시작</button>
+                        </div>
+                        <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                    </div>
+                </div>
+                <div class="settings-tab-panel" role="tabpanel" id="settings-advanced">
+                    <div class="settings-section">
+                        <div class="env-settings-header">
+                            <h3>🧪 환경설정(.env) 고급 모드</h3>
+                        </div>
+                        <div class="env-advanced-warning">
+                            <strong>⚠️ 고급 모드는 전체 .env를 직접 편집합니다.</strong>
+                            <ul>
+                                <li>잘못 저장하면 서버가 부팅되지 않을 수 있습니다.</li>
+                                <li>저장 시 자동 백업이 생성됩니다.</li>
+                                <li>SECRET_KEY 변경은 특히 주의하세요.</li>
+                            </ul>
+                        </div>
+                        <textarea id="env-raw-text" class="env-raw-text" spellcheck="false"></textarea>
+                        <div class="env-settings-actions">
+                            <button type="button" id="env-raw-reload" class="env-secondary-button">새로고침</button>
+                            <button type="button" id="env-raw-validate" class="env-secondary-button">검증</button>
+                            <button type="button" id="env-raw-save" class="env-save-button">저장</button>
+                            <span id="env-raw-status" class="env-settings-status"></span>
+                        </div>
+                        <div id="env-diff-summary" class="env-diff-summary" hidden></div>
+                        <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endcall %}
+
+    <!-- 맨 위로 버튼 -->
+    <button id="scrollTopBtn">⬆ 맨 위로</button>
+
+<script id="search-results-data" type="application/json">{{ results|tojson }}</script>
+<script id="initial-data" type="application/json">{{ {
+  "page": page,
+  "total_pages": total_pages,
+  "query": query,
+  "match": match,
+  "tag_source": tag_source,
+  "sort": sort,
+  "limit": limit,
+  "models": selected_models,
+  "model_match": selected_model_match,
+  "sampler": (selected_sampler or ""),
+  "seed": (seed or ""),
+  "steps": (steps or ""),
+  "media": media,
+  "collection_ids": selected_collection_ids,
+  "collection_id": (selected_collection_ids[0] if selected_collection_ids else None),
+  "collection_match": selected_collection_match,
+  "model_category_id": selected_model_category_id,
+  "large_dataset": large_dataset,
+  "booru_tag_display": booru_tag_display
+} | tojson }}</script>
+<script id="collections-data" type="application/json">{{ collection_options|tojson }}</script>
+<script id="collections-raw-data" type="application/json">{{ collections|tojson }}</script>
+{% include "partials/_collection_panel.html" %}
+{{ ui.toast_container() }}
+
+    <!-- 🔄 전체 재정리 상태 모달 -->
+    {% call ui.modal_root("refresh-modal", class_name="modal is-hidden") %}
+        <div class="modal-content">
+            <span class="close" id="refresh-close">&times;</span>
+            <h3 class="modal-title">🔄 전체 재정리 진행 상황</h3>
+            <div class="refresh-status-line">
+                <strong id="refresh-status-label">대기 중</strong>
+                <span id="refresh-progress-value">0%</span>
+            </div>
+            <div class="refresh-progress-track">
+                <div id="refresh-progress-bar"></div>
+            </div>
+            <div id="refresh-remaining"></div>
+            <pre id="refresh-log">대기 중...</pre>
+            <div class="refresh-actions">
+                <button type="button" id="refresh-retry" class="refresh-secondary is-hidden">다시 시도</button>
+                <button type="button" id="refresh-cancel" class="refresh-danger">취소</button>
+                <button type="button" id="refresh-close-btn" class="refresh-secondary">닫기</button>
+            </div>
+        </div>
+    {% endcall %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{{ url_for('static', filename='js/gallery_page.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+{% endblock %}

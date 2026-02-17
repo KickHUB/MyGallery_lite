@@ -1,0 +1,85 @@
+# MyGallery Lite
+# Ignore local/runtime artifacts; keep source files versionable.
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.pyd
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+*.pid
+
+# Test/tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build/package artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Runtime database and caches
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite3
+data/*.sqlite-*
+data/*.sqlite3-*
+data/refresh.lock*
+data/booru_cache/
+data/db_backups/
+data/env_backups/
+data/integrity_reports/
+
+# Runtime portable dependencies (downloaded by app)
+tools/ffmpeg/
+tools/exiftool/
+tools/wd14/
+tools/booru/
+tools/portable_setup_state.json
+
+# Runtime media outputs (if SOURCE points inside repo)
+Sorted_by_Date/
+ComfyUI/
+output/
+**/_thumbs/
+**/Trash/
+**/quarantine/
+**/failed/
+
+# Optional local caches/outputs
+.hf_cache/
+scripts/_outputs/
+
+# Local/developer-only docs
+README.dev.md

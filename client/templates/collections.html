@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}컬렉션{% endblock %}
+
+{% block main_attrs %} class="collections-page"{% endblock %}
+
+{% block content %}
+    <div class="page-shell">
+        <h1 class="page-title">컬렉션 목록</h1>
+
+        <section class="split-layout">
+            <div class="split-panel">
+                <h2>새 컬렉션 생성</h2>
+                <form method="post" action="{{ url_for('gallery.collections_create_form') }}" class="form-stack form-stack--spaced">
+                    <label for="name">이름</label>
+                    <input type="text" name="name" id="name" required>
+                    <label for="parent_id">부모 컬렉션 (선택 사항)</label>
+                    <select name="parent_id" id="parent_id">
+                        <option value="">(루트)</option>
+                        {% for opt in collection_options or [] %}
+                        <option value="{{ opt.id }}">{{ '— ' * opt.depth }}{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">추가</button>
+                    {% if error_message %}<span class="form-message form-message--error">{{ error_message }}</span>{% endif %}
+                    {% if created_id %}<span class="form-message form-message--success">컬렉션이 생성되었습니다.</span>{% endif %}
+                </form>
+            </div>
+
+            <div class="split-panel">
+                <h2>컬렉션 트리</h2>
+                <ul>
+                    {% macro render_tree(nodes) -%}
+                        {%- for node in nodes %}
+                            <li>
+                                <strong>{{ node.name }}</strong> ({{ node.total_item_count }}개)
+                                [<a href="{{ url_for('gallery.index', collection_id=node.id) }}">갤러리</a>]
+                                [<a href="{{ url_for('gallery.collection_detail_page', collection_id=node.id) }}">세부</a>]
+                                {% if node.children %}
+                                    <ul>
+                                        {{ render_tree(node.children) }}
+                                    </ul>
+                                {% endif %}
+                            </li>
+                        {%- endfor %}
+                    {%- endmacro %}
+                    {{ render_tree(collection_tree or []) }}
+                </ul>
+            </div>
+        </section>
+
+        {% if current_collection %}
+        <hr>
+        <div id="collection-actions" hidden
+            data-rename-url="{{ url_for('gallery.api_rename_collection', collection_id=current_collection.id) }}"
+            data-delete-url="{{ url_for('gallery.api_delete_collection', collection_id=current_collection.id) }}"
+            data-back-url="{{ url_for('gallery.collections_page') }}"></div>
+        <h2>{{ current_collection.name }} ({{ current_collection.id }})</h2>
+        <p>생성일: {{ current_collection.created_at }}</p>
+        <p>부모: {{ current_collection.parent_id or '루트' }}</p>
+        <p><a href="{{ url_for('gallery.index', collection_id=current_collection.id) }}">이 컬렉션으로 필터링</a></p>
+
+        <section class="split-layout">
+            <div class="split-panel split-panel--narrow">
+                <h3>하위 컬렉션</h3>
+                <ul>
+                    {% for child in current_children or [] %}
+                    <li>
+                        <strong>{{ child.name }}</strong>
+                        [<a href="{{ url_for('gallery.collection_detail_page', collection_id=child.id) }}">열기</a>]
+                        [<a href="{{ url_for('gallery.index', collection_id=child.id) }}">필터</a>]
+                    </li>
+                    {% else %}
+                    <li>하위 컬렉션이 없습니다.</li>
+                    {% endfor %}
+                </ul>
+
+                <h4>새 하위 컬렉션 생성</h4>
+                <form method="post" action="{{ url_for('gallery.collections_create_form') }}" class="form-stack">
+                    <input type="hidden" name="parent_id" value="{{ current_collection.id }}">
+                    <label for="child_name">이름</label>
+                    <input type="text" id="child_name" name="name" required>
+                    <button type="submit">추가</button>
+                </form>
+            </div>
+            <div class="split-panel split-panel--narrow">
+                <h3>부모 이동 / 이름 변경</h3>
+                <form id="move-collection-form" class="form-stack">
+                    <label for="rename_input">새 이름</label>
+                    <input type="text" id="rename_input" name="name" value="{{ current_collection.name }}">
+                    <label for="move_parent">새 부모</label>
+                    <select id="move_parent" name="parent_id">
+                        <option value="">(루트)</option>
+                        {% for opt in collection_options or [] %}
+                            {% if opt.id != current_collection.id %}
+                            <option value="{{ opt.id }}" {% if opt.id == current_collection.parent_id %}selected{% endif %}>{{ '— ' * opt.depth }}{{ opt.label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                    <button type="submit">저장</button>
+                </form>
+                <p class="panel-actions">
+                    <button id="delete-current" data-id="{{ current_collection.id }}" class="btn-danger-outline">이 컬렉션 삭제</button>
+                </p>
+            </div>
+        </section>
+
+        <h3>항목</h3>
+        <ul>
+            {% for item in items %}
+            <li>{{ item.media_type }} - {{ item.media_path }}</li>
+            {% else %}
+            <li>항목이 없습니다.</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
+    {% if current_collection %}
+    <script src="{{ url_for('static', filename='js/collections.js') }}"></script>
+    {% endif %}
+{% endblock %}
