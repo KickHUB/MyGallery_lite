@@ -62,13 +62,13 @@ def organize_pngs(
                 target = date_dir / entry.name
 
             if target.exists():
-                print(f"⚠️ 중복으로 건너뜀: {target.name}")
+                print(f"[WARN] Duplicate target skipped: {target.name}")
                 continue
 
             shutil.move(str(entry), str(target))
             moved.append(str(target))
-            print(f"✅ PNG 이동: {entry.name} → {target}")
+            print(f"[INFO] PNG moved: {entry.name} -> {target}")
         except Exception as e:
-            print(f"⚠️ PNG 이동 실패({entry.name}): {e}")
+            print(f"[WARN] PNG move failed ({entry.name}): {e}")
 
     return moved

@@ -172,7 +172,7 @@ def handle_video_png(png_path: str, wait_seconds: int = 25) -> bool:
             logger.warning("⚠️ 영상 이동 실패 (파일 사용 중): %s", video_path)
             if last_err:
                 logger.debug("마지막 이동 오류: %s", last_err)
-            print(f"⚠️ 영상 이동 실패 (다른 프로세스 사용 중): {video_path.name}")
+            print(f"[WARN] Video move failed (in use): {video_path.name}")
             return False
 
         shutil.move(str(src_png), str(dst_png))
@@ -180,7 +180,7 @@ def handle_video_png(png_path: str, wait_seconds: int = 25) -> bool:
         build_thumbnail_cache(str(dst_png))
 
         upsert_video(str(dst_video), str(dst_png))
-        print(f"🎬 영상 정리 완료: {stem} → {videos_folder} / {dst_video.name}, {dst_png.name}")
+        print(f"[INFO] Video cleanup done: {stem} -> {videos_folder} / {dst_video.name}, {dst_png.name}")
         return True
     except Exception:
         logger.exception("❌ 영상 정리 오류")
@@ -272,7 +272,7 @@ def handle_video_only(video_path: str, wait_seconds: int = 25) -> bool:
         meta = extract_prompt_from_file(str(dst_video))
         upsert_video(str(dst_video), str(dst_video), meta)
 
-        print(f"🎬 영상 정리 완료(단독): {stem} → {videos_folder} / {dst_video.name}")
+        print(f"[INFO] Video cleanup done (video-only): {stem} -> {videos_folder} / {dst_video.name}")
         return True
     except Exception:
         logger.exception('❌ 영상(단독) 정리 오류')
@@ -348,9 +348,9 @@ def _process_png_common(delay: float = 3.0):
         if items:
             save_tags_to_db(items)
             _auto_tag_items(items)
-            print(f"✅ DB 저장 완료 (이미지 {len(items)}건)")
+            print(f"[INFO] DB save done (images: {len(items)})")
         else:
-            print("ℹ 인덱싱할 이미지 없음")
+            print("[INFO] No images to index")
     except Exception:
         logger.exception("❌ 정리 중 오류")
 
@@ -390,7 +390,7 @@ def process_existing_on_startup() -> None:
             return
 
         print(
-            f"🚀 초기 정리(백그라운드) 시작: 기존 PNG {len(pending_pngs)}건, 기존 영상 {len(pending_videos)}건 검사"
+            f"[INFO] Startup cleanup begin (background): existing PNG {len(pending_pngs)}, existing videos {len(pending_videos)}"
         )
 
         # video+png (기존 루틴)
@@ -422,10 +422,10 @@ def process_existing_on_startup() -> None:
 
         if processed_videos or processed_video_only:
             print(
-                f"✅ 초기 영상 정리 완료(백그라운드): 페어 {processed_videos}건, 단독 {processed_video_only}건 이동"
+                f"[INFO] Startup video cleanup done (background): paired {processed_videos}, video-only {processed_video_only} moved"
             )
         else:
-            print("ℹ 초기 영상 정리 대상 없음(백그라운드)")
+            print("[INFO] No startup video cleanup targets (background)")
     except Exception:
         logger.exception("❌ 초기 PNG/영상 정리 중 오류")
 
@@ -438,7 +438,7 @@ class NewMediaHandler(FileSystemEventHandler):
         low = src.lower()
 
         if low.endswith('.png'):
-            print(f"📥 새 PNG 감지: {os.path.basename(src)}")
+            print(f"[INFO] New PNG detected: {os.path.basename(src)}")
             fname = os.path.basename(src).lower()
             if fname.startswith('video'):
                 _run_thread_with_timeout(_process_video_png, 60, src)
@@ -450,7 +450,7 @@ class NewMediaHandler(FileSystemEventHandler):
             fname = os.path.basename(src).lower()
             if not fname.startswith('video'):
                 return
-            print(f"🎞️ 새 영상 감지: {os.path.basename(src)}")
+            print(f"[INFO] New video detected: {os.path.basename(src)}")
             _run_thread_with_timeout(_process_video_only, 60, src)
 
 
@@ -458,21 +458,21 @@ def start_watchdog():
     source_path = (SOURCE or "").strip()
     if not source_path:
         logger.warning("watchdog 시작 생략: SOURCE가 설정되지 않았습니다.")
-        print("[WARN] SOURCE가 설정되지 않아 watchdog 감시를 시작하지 않습니다.")
+        print("[WARN] SOURCE is not set. watchdog will not start.")
         return
 
     src_dir = Path(source_path)
     if not src_dir.is_dir():
         logger.warning("watchdog 시작 생략: SOURCE 경로가 존재하지 않습니다. (%s)", source_path)
-        print(f"[WARN] SOURCE 경로가 없어 watchdog 감시를 시작하지 않습니다: {source_path}")
+        print(f"[WARN] SOURCE path does not exist. watchdog will not start: {source_path}")
         return
 
     try:
         obs = Observer()
         obs.schedule(NewMediaHandler(), path=source_path, recursive=False)
         obs.start()
-        print(f"📡 watchdog 감시 시작: {source_path}")
+        print(f"[INFO] watchdog start: {source_path}")
         threading.Thread(target=obs.join, daemon=True).start()
     except Exception:
         logger.exception("watchdog 시작 실패")
-        print("[WARN] watchdog 시작에 실패했습니다. 설정에서 SOURCE 경로를 확인하세요.")
+        print("[WARN] watchdog failed to start. Check SOURCE path in settings.")

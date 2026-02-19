@@ -1,0 +1,129 @@
+{% import "partials/_ui_macros.html" as ui %}
+
+{% call ui.modal_root("settings-modal") %}
+    <div class="modal-content">
+        <button type="button" id="settings-close" class="close" aria-label="닫기">&times;</button>
+        <h2>⚙ 설정</h2>
+        <div class="settings-tabs-row">
+            <div class="settings-tabs" role="tablist" aria-label="설정 탭">
+                <button type="button" class="settings-tab-button active" role="tab" aria-selected="true" data-tab-target="settings-general">일반</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-server">서버 설정</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-tags">태그 설정</button>
+                <button type="button" class="settings-tab-button" role="tab" aria-selected="false" data-tab-target="settings-advanced">고급 모드</button>
+            </div>
+            <div class="settings-tabs-actions">
+                <span id="env-active-status" class="env-settings-status"></span>
+                <button type="button" id="env-active-save" class="env-save-button" disabled>
+                    💾 설정 저장
+                </button>
+            </div>
+        </div>
+        <div id="env-global-restart-banner" class="env-restart-banner" hidden>
+            저장이 완료되었습니다. 변경 사항 적용을 위해 서버 재시작이 필요합니다.
+        </div>
+        <div class="settings-tab-panels">
+            <div class="settings-tab-panel active" role="tabpanel" id="settings-general">
+                <form class="settings-form">
+                    <button type="button" id="btn-gallery-update" class="settings-action-btn settings-action-btn--purple">
+                        ⬇️ 갤러리 업데이트
+                    </button>
+                </form>
+                <p id="update-restart-required" class="settings-note settings-note--warn is-hidden">
+                    ⚠️ 업데이트가 적용되었습니다. 서버 재시작이 필요합니다.
+                </p>
+                <form class="settings-form">
+                    <button type="button" id="btn-booru-dict-update" class="settings-action-btn settings-action-btn--teal">
+                        🏷 Danbooru 태그DB 업데이트
+                    </button>
+                </form>
+                <div id="booru-dict-status" class="settings-status">
+                    태그DB 상태: 로드 중...
+                </div>
+                <form class="settings-form">
+                    <button type="button" id="btn-runtime-ffmpeg-install" class="settings-action-btn settings-action-btn--teal">
+                        🎬 FFmpeg/FFprobe 설치
+                    </button>
+                </form>
+                <form class="settings-form">
+                    <button type="button" id="btn-runtime-exiftool-install" class="settings-action-btn settings-action-btn--teal">
+                        🧷 ExifTool 설치
+                    </button>
+                </form>
+                <form class="settings-form settings-form-inline">
+                    <select id="runtime-wd14-model" class="settings-inline-select" aria-label="WD14 모델 선택">
+                        <option value="wd-swinv2-tagger-v3">wd-swinv2-tagger-v3 (권장)</option>
+                        <option value="wd-eva02-large-tagger-v3">wd-eva02-large-tagger-v3</option>
+                    </select>
+                    <button type="button" id="btn-runtime-wd14-install" class="settings-action-btn settings-action-btn--teal">
+                        🧠 WD14 모델 설치
+                    </button>
+                </form>
+                <div id="runtime-assets-status" class="settings-status">
+                    런타임 도구 상태: 로드 중...
+                </div>
+                <p class="settings-hint">설치가 완료되면 관련 경로가 .env에 자동 저장됩니다.</p>
+                <form method="POST" action="/restart" class="settings-form" id="restart-form">
+                    <button type="submit" class="settings-action-btn settings-action-btn--blue">
+                        ♻ 서버 재시작
+                    </button>
+                </form>
+                <p id="restart-msg" class="settings-note settings-note--info is-hidden">
+                    서버 재시작 중... 잠시만 기다려 주세요.
+                </p>
+                <form class="settings-form">
+                    <button type="button" id="clear-history" class="settings-action-btn settings-action-btn--gray">
+                        🧹 검색기록 삭제
+                    </button>
+                </form>
+            </div>
+            <div class="settings-tab-panel" role="tabpanel" id="settings-server">
+                <div class="settings-section">
+                    <div class="env-settings-header">
+                        <h3>🧪 환경설정(.env)</h3>
+                    </div>
+                    <p class="settings-hint">
+                        서버 설정은 화이트리스트 키만 안전하게 수정합니다.
+                    </p>
+                    <div id="env-server-groups" class="env-basic-groups"></div>
+                    <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                </div>
+            </div>
+            <div class="settings-tab-panel" role="tabpanel" id="settings-tags">
+                <div class="settings-section">
+                    <div class="env-settings-header">
+                        <h3>🏷 태그 설정</h3>
+                    </div>
+                    <p class="settings-hint">
+                        WD14 자동 태깅에 사용하는 모델/임계값을 조정합니다.
+                    </p>
+                    <div id="env-tags-groups" class="env-basic-groups"></div>
+                    <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                </div>
+            </div>
+            <div class="settings-tab-panel" role="tabpanel" id="settings-advanced">
+                <div class="settings-section">
+                    <div class="env-settings-header">
+                        <h3>🧪 환경설정(.env) 고급 모드</h3>
+                    </div>
+                    <div class="env-advanced-warning">
+                        <strong>⚠️ 고급 모드는 전체 .env를 직접 편집합니다.</strong>
+                        <ul>
+                            <li>잘못 저장하면 서버가 부팅되지 않을 수 있습니다.</li>
+                            <li>저장 시 자동 백업이 생성됩니다.</li>
+                            <li>SECRET_KEY 변경은 특히 주의하세요.</li>
+                        </ul>
+                    </div>
+                    <textarea id="env-raw-text" class="env-raw-text" spellcheck="false"></textarea>
+                    <div class="env-settings-actions">
+                        <button type="button" id="env-raw-reload" class="env-secondary-button">새로고침</button>
+                        <button type="button" id="env-raw-validate" class="env-secondary-button">검증</button>
+                        <button type="button" id="env-raw-save" class="env-save-button">저장</button>
+                        <span id="env-raw-status" class="env-settings-status"></span>
+                    </div>
+                    <div id="env-diff-summary" class="env-diff-summary" hidden></div>
+                    <p class="settings-hint">저장 시 .env 백업이 data/env_backups에 생성됩니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endcall %}

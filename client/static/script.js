@@ -1928,6 +1928,8 @@ function initProfileMenu() {
     profileMenuState.toggle = document.getElementById("profile-menu-toggle");
     profileMenuState.panel = document.getElementById("profile-menu-panel");
     if (!profileMenuState.root || !profileMenuState.toggle || !profileMenuState.panel) return;
+    if (profileMenuState.root.dataset.menuBound === "1") return;
+    profileMenuState.root.dataset.menuBound = "1";
 
     profileMenuState.toggle.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -3157,15 +3159,19 @@ function toggleModalExpanded() {
 }
 
 function hideModal() {
+    const modalEl = document.getElementById("modal");
+    if (!modalEl) return;
     const vidEl = document.getElementById("modal-video");
-    vidEl.pause();
-    vidEl.removeAttribute("src");
-    vidEl.load();
+    if (vidEl) {
+        vidEl.pause();
+        vidEl.removeAttribute("src");
+        vidEl.load();
+    }
     setModalExpanded(false);
     closeRelatedPanel();
     clearBooruSuggestions();
     closeBooruChipPopover();
-    document.getElementById("modal").style.display = "none";
+    modalEl.style.display = "none";
 }
 
 function hideSettingsModal() {
@@ -3204,12 +3210,13 @@ function activateSettingsTab(targetId) {
     panels.forEach(panel => {
         panel.classList.toggle("active", panel.id === targetId);
     });
-    if (targetId === "settings-server" || targetId === "settings-engine" || targetId === "settings-tags") {
+    if (targetId === "settings-server" || targetId === "settings-tags") {
         loadEnvBasic();
     }
     if (targetId === "settings-advanced") {
         loadEnvRaw();
     }
+    updateEnvSaveActionState(targetId);
 }
 
 function initSettingsTabs() {
@@ -3220,6 +3227,8 @@ function initSettingsTabs() {
             activateSettingsTab(btn.dataset.tabTarget);
         });
     });
+    const activeButton = Array.from(buttons).find((btn) => btn.classList.contains("active"));
+    updateEnvSaveActionState(activeButton?.dataset.tabTarget || "settings-general");
 }
 
 const envSettingsState = {
@@ -3230,6 +3239,57 @@ const envSettingsState = {
     basicLoaded: false,
     advancedLoaded: false,
 };
+
+let activeSettingsTabId = "settings-general";
+const ENV_GLOBAL_STATUS_ID = "env-active-status";
+const ENV_GLOBAL_RESTART_BANNER_ID = "env-global-restart-banner";
+
+const ENV_BASIC_SECTIONS = [
+    {
+        tabId: "settings-server",
+        containerId: "env-server-groups",
+        emptyText: "표시할 서버 설정 항목이 없습니다.",
+        filterGroup: (group) => group.id !== "tags",
+    },
+    {
+        tabId: "settings-tags",
+        containerId: "env-tags-groups",
+        emptyText: "표시할 태그 설정 항목이 없습니다.",
+        filterGroup: (group) => group.id === "tags",
+    },
+];
+
+function getEnvBasicSectionByTab(tabId) {
+    return ENV_BASIC_SECTIONS.find((section) => section.tabId === tabId) || null;
+}
+
+function updateEnvSaveActionState(tabId) {
+    activeSettingsTabId = tabId || "settings-general";
+    const saveBtn = document.getElementById("env-active-save");
+    const statusEl = document.getElementById(ENV_GLOBAL_STATUS_ID);
+    const restartBanner = document.getElementById(ENV_GLOBAL_RESTART_BANNER_ID);
+    const section = getEnvBasicSectionByTab(activeSettingsTabId);
+    const enabled = Boolean(section);
+    if (saveBtn) {
+        saveBtn.disabled = !enabled;
+        saveBtn.setAttribute("aria-disabled", String(!enabled));
+    }
+    if (!enabled) {
+        if (statusEl) statusEl.textContent = "";
+        if (restartBanner) restartBanner.hidden = true;
+    }
+}
+
+function renderAllEnvBasicSections(schema, values = {}) {
+    ENV_BASIC_SECTIONS.forEach(({ containerId, filterGroup, emptyText }) => {
+        renderEnvBasic(schema, values, { containerId, filterGroup, emptyText });
+    });
+}
+
+function setAllEnvBasicStatus(message = "", type = "info") {
+    if (!getEnvBasicSectionByTab(activeSettingsTabId)) return;
+    setEnvStatus(ENV_GLOBAL_STATUS_ID, message, type);
+}
 
 function setEnvStatus(targetId, message = "", type = "info") {
     const statusEl = document.getElementById(targetId);
@@ -3358,6 +3418,11 @@ function renderEnvBasic(schema, values = {}, options = {}) {
             const control = document.createElement("div");
             control.className = "env-field-control";
             const fieldType = field.type || "string";
+            const picker = fieldType === "string" ? normalizeEnvPicker(field) : null;
+            if (picker) {
+                card.classList.add("env-field-card--path");
+                control.classList.add("env-field-control--path");
+            }
             if (fieldType === "bool") {
                 const input = document.createElement("input");
                 input.type = "checkbox";
@@ -3395,7 +3460,6 @@ function renderEnvBasic(schema, values = {}, options = {}) {
                 input.value = values[field.key] ?? "";
                 control.appendChild(input);
 
-                const picker = fieldType === "string" ? normalizeEnvPicker(field) : null;
                 if (picker && input.type === "text") {
                     const button = document.createElement("button");
                     button.type = "button";
@@ -3488,54 +3552,22 @@ async function loadEnvBasic({ force = false } = {}) {
     if (envSettingsState.loadingBasic) return;
     if (envSettingsState.basicLoaded && !force) return;
     envSettingsState.loadingBasic = true;
-    setEnvStatus("env-server-status", "불러오는 중...");
-    setEnvStatus("env-engine-status", "불러오는 중...");
-    setEnvStatus("env-tags-status", "불러오는 중...");
+    setAllEnvBasicStatus("불러오는 중...");
     try {
         const schema = await loadEnvSchema();
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-server-groups",
-            filterGroup: (group) => group.id !== "engine" && group.id !== "tags",
-        });
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-engine-groups",
-            filterGroup: (group) => group.id === "engine",
-            emptyText: "표시할 엔진 설정 항목이 없습니다.",
-        });
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-tags-groups",
-            filterGroup: (group) => group.id === "tags",
-            emptyText: "표시할 태그 설정 항목이 없습니다.",
-        });
+        renderAllEnvBasicSections(schema, envSettingsState.values);
         const res = await fetch("/api/settings/env", { headers: { Accept: "application/json" } });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
             throw new Error(data.error || "환경설정 값을 불러오지 못했습니다.");
         }
         envSettingsState.values = data.values || {};
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-server-groups",
-            filterGroup: (group) => group.id !== "engine" && group.id !== "tags",
-        });
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-engine-groups",
-            filterGroup: (group) => group.id === "engine",
-            emptyText: "표시할 엔진 설정 항목이 없습니다.",
-        });
-        renderEnvBasic(schema, envSettingsState.values, {
-            containerId: "env-tags-groups",
-            filterGroup: (group) => group.id === "tags",
-            emptyText: "표시할 태그 설정 항목이 없습니다.",
-        });
+        renderAllEnvBasicSections(schema, envSettingsState.values);
         envSettingsState.basicLoaded = true;
-        setEnvStatus("env-server-status", "로드 완료");
-        setEnvStatus("env-engine-status", "로드 완료");
-        setEnvStatus("env-tags-status", "로드 완료");
+        setAllEnvBasicStatus("로드 완료");
     } catch (err) {
         showToast(err.message || "환경설정 로드 실패", "error");
-        setEnvStatus("env-server-status", "로드 실패", "error");
-        setEnvStatus("env-engine-status", "로드 실패", "error");
-        setEnvStatus("env-tags-status", "로드 실패", "error");
+        setAllEnvBasicStatus("로드 실패", "error");
     } finally {
         envSettingsState.loadingBasic = false;
     }
@@ -3580,7 +3612,7 @@ async function saveEnvBasicSection({ containerId, statusId, restartBannerId }) {
         }
     });
 
-    const saveBtn = container ? container.closest(".settings-section")?.querySelector("button.env-save-button") : null;
+    const saveBtn = document.getElementById("env-active-save");
     if (saveBtn) saveBtn.disabled = true;
     setEnvStatus(statusId, "저장 중...");
     try {
@@ -3595,15 +3627,7 @@ async function saveEnvBasicSection({ containerId, statusId, restartBannerId }) {
         }
         envSettingsState.values = data.values || {};
         envSettingsState.basicLoaded = true;
-        renderEnvBasic(envSettingsState.schema, envSettingsState.values, {
-            containerId: "env-server-groups",
-            filterGroup: (group) => group.id !== "engine",
-        });
-        renderEnvBasic(envSettingsState.schema, envSettingsState.values, {
-            containerId: "env-engine-groups",
-            filterGroup: (group) => group.id === "engine",
-            emptyText: "표시할 엔진 설정 항목이 없습니다.",
-        });
+        renderAllEnvBasicSections(envSettingsState.schema, envSettingsState.values);
         const restartBanner = document.getElementById(restartBannerId);
         if (data.restart_required) {
             if (restartBanner) restartBanner.hidden = false;
@@ -3671,6 +3695,57 @@ async function saveEnvRaw() {
 
 function initEnvModeTabs() {
     // Deprecated: settings tabs now control env sections.
+}
+
+function initSettingsModalBindings() {
+    initSettingsTabs();
+    initEnvModeTabs();
+
+    const saveBtn = document.getElementById("env-active-save");
+    if (saveBtn && saveBtn.dataset.envBound !== "1") {
+        saveBtn.dataset.envBound = "1";
+        saveBtn.addEventListener("click", () => {
+            const section = getEnvBasicSectionByTab(activeSettingsTabId);
+            if (!section) return;
+            saveEnvBasicSection({
+                containerId: section.containerId,
+                statusId: ENV_GLOBAL_STATUS_ID,
+                restartBannerId: ENV_GLOBAL_RESTART_BANNER_ID,
+            });
+        });
+    }
+
+    const rawReloadBtn = document.getElementById("env-raw-reload");
+    if (rawReloadBtn && rawReloadBtn.dataset.envBound !== "1") {
+        rawReloadBtn.dataset.envBound = "1";
+        rawReloadBtn.addEventListener("click", () => loadEnvRaw({ force: true }));
+    }
+
+    const rawValidateBtn = document.getElementById("env-raw-validate");
+    if (rawValidateBtn && rawValidateBtn.dataset.envBound !== "1") {
+        rawValidateBtn.dataset.envBound = "1";
+        rawValidateBtn.addEventListener("click", validateEnvRaw);
+    }
+
+    const rawSaveBtn = document.getElementById("env-raw-save");
+    if (rawSaveBtn && rawSaveBtn.dataset.envBound !== "1") {
+        rawSaveBtn.dataset.envBound = "1";
+        rawSaveBtn.addEventListener("click", saveEnvRaw);
+    }
+
+    const settingsCloseBtn = document.getElementById("settings-close");
+    if (settingsCloseBtn && settingsCloseBtn.dataset.settingsBound !== "1") {
+        settingsCloseBtn.dataset.settingsBound = "1";
+        settingsCloseBtn.addEventListener("click", hideSettingsModal);
+    }
+
+    const restartForm = document.getElementById("restart-form");
+    if (restartForm && restartForm.dataset.restartBound !== "1") {
+        restartForm.dataset.restartBound = "1";
+        restartForm.addEventListener("submit", () => {
+            showRestarting();
+        });
+    }
 }
 
 function getIncludeVideosValue() {
@@ -5232,6 +5307,7 @@ window.addEventListener("click", function (event) {
 
 document.addEventListener("DOMContentLoaded", function () {
     const hasSearchForm = Boolean(document.getElementById("search-form"));
+    initSettingsModalBindings();
 
     setupDataTaskUI();
     const hasDataTaskSection = Boolean(document.getElementById("data-task-status"));
@@ -5343,58 +5419,11 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("pointerup", endDragSelection);
     document.addEventListener("pointercancel", endDragSelection);
 
-    // ✅ 설정 모달 열기
-    document.getElementById("settings-btn")?.addEventListener("click", async function() {
-        if (profileMenuState.open) {
-            setProfileMenuOpen(false);
-        }
-        document.getElementById("settings-modal").style.display = "block";
-        document.body.style.overflow = "hidden";
-        loadEnvBasic();
-    });
-    initSettingsTabs();
-    initEnvModeTabs();
-
-    document.getElementById("env-server-save")?.addEventListener("click", () => {
-        saveEnvBasicSection({
-            containerId: "env-server-groups",
-            statusId: "env-server-status",
-            restartBannerId: "env-server-restart-banner",
-        });
-    });
-    document.getElementById("env-engine-save")?.addEventListener("click", () => {
-        saveEnvBasicSection({
-            containerId: "env-engine-groups",
-            statusId: "env-engine-status",
-            restartBannerId: "env-engine-restart-banner",
-        });
-    });
-    document.getElementById("env-tags-save")?.addEventListener("click", () => {
-        saveEnvBasicSection({
-            containerId: "env-tags-groups",
-            statusId: "env-tags-status",
-            restartBannerId: "env-tags-restart-banner",
-        });
-    });
-    document.getElementById("env-raw-reload")?.addEventListener("click", () => loadEnvRaw({ force: true }));
-    document.getElementById("env-raw-validate")?.addEventListener("click", validateEnvRaw);
-    document.getElementById("env-raw-save")?.addEventListener("click", saveEnvRaw);
-    document.querySelectorAll(".env-restart-button").forEach((btn) => {
-        btn.addEventListener("click", () => {
-            const target = btn.dataset.restartUrl || "/restart";
-            window.location.href = target;
-        });
-    });
-
     document.getElementById("modal-prev")?.addEventListener("click", showPrevImage);
     document.getElementById("modal-next")?.addEventListener("click", showNextImage);
     document.getElementById("modal-close")?.addEventListener("click", hideModal);
     document.getElementById("show-exif")?.addEventListener("click", showExif);
     document.querySelector(".modal-delete-action")?.addEventListener("click", deleteImage);
-    document.getElementById("settings-close")?.addEventListener("click", hideSettingsModal);
-    document.getElementById("restart-form")?.addEventListener("submit", () => {
-        showRestarting();
-    });
     document.getElementById("scrollTopBtn")?.addEventListener("click", scrollToTop);
 
     // ✅ 모달 이미지 클릭 → 새 창 열기
@@ -7976,6 +8005,7 @@ if (document.readyState === "loading") {
 }
 document.addEventListener("DOMContentLoaded", function () {
   try {
+    if (!document.body.classList.contains("page-gallery")) return;
     // Keep gallery title stable in Lite.
     var h1 = document.querySelector('h1');
     if (h1) {

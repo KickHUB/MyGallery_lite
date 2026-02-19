@@ -418,7 +418,15 @@ def import_booru_csv(
             "category=excluded.category, post_count=excluded.post_count, updated_at=CURRENT_TIMESTAMP"
         )
     else:
-        insert_sql = f"INSERT INTO {insert_table} (tag, category, post_count) VALUES (?, ?, ?)"
+        insert_sql = (
+            f"INSERT INTO {insert_table} (tag, category, post_count) VALUES (?, ?, ?) "
+            "ON CONFLICT(tag) DO UPDATE SET "
+            f"category=CASE WHEN excluded.post_count >= {insert_table}.post_count "
+            f"THEN excluded.category ELSE {insert_table}.category END, "
+            f"post_count=CASE WHEN excluded.post_count >= {insert_table}.post_count "
+            f"THEN excluded.post_count ELSE {insert_table}.post_count END, "
+            "updated_at=CURRENT_TIMESTAMP"
+        )
 
     try:
         cur.execute("BEGIN")

@@ -130,7 +130,8 @@ def failed_page():
                             "label": Path(rel_path).as_posix(),
                             "filename": filename,
                         })
-                grouped[date_str] = sorted(files, key=lambda x: x["label"].lower())
+                if files:
+                    grouped[date_str] = sorted(files, key=lambda x: x["label"].lower())
     return render_template("failed.html", grouped=grouped)
 
 

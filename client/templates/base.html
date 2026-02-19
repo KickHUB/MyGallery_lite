@@ -12,30 +12,39 @@
 <body{% block body_attrs %}{% endblock %}>
     {% block nav %}
     <nav class="global-nav">
-        <div class="global-nav__links">
-            <a href="{{ url_for('gallery.index') }}">🏠 갤러리</a>
-            <a href="{{ url_for('gallery.prompts_page') }}">🧾 프롬프트</a>
-            <a href="{{ url_for('gallery.tags_page') }}">🏷 태그</a>
-            <a href="{{ url_for('stats.stats_page') }}">📊 통계</a>
-            <a href="{{ url_for('gallery.collections_page') }}">📁 모음집</a>
-            <a href="{{ url_for('gallery.model_categories_page') }}">🧠 모델</a>
-            <a href="{{ url_for('trash.trash_page') }}">🗑 휴지통</a>
-            <a href="{{ url_for('failed.failed_page') }}">❌ 실패</a>
-            <a href="{{ url_for('quarantine.quarantine_page') }}">🚧 격리</a>
+        {% set current_endpoint = request.endpoint or '' %}
+        <div class="global-nav__left">
+            <span class="global-nav__title">MyGallery Lite</span>
+            <div class="global-nav__links">
+            <a href="{{ url_for('gallery.index') }}" class="{% if current_endpoint == 'gallery.index' %}is-active{% endif %}" {% if current_endpoint == 'gallery.index' %}aria-current="page"{% endif %}>🏠 갤러리</a>
+            <a href="{{ url_for('gallery.prompts_page') }}" class="{% if current_endpoint == 'gallery.prompts_page' %}is-active{% endif %}" {% if current_endpoint == 'gallery.prompts_page' %}aria-current="page"{% endif %}>🧾 프롬프트</a>
+            <a href="{{ url_for('gallery.tags_page') }}" class="{% if current_endpoint == 'gallery.tags_page' %}is-active{% endif %}" {% if current_endpoint == 'gallery.tags_page' %}aria-current="page"{% endif %}>🏷 태그</a>
+            <a href="{{ url_for('stats.stats_page') }}" class="{% if current_endpoint.startswith('stats.') %}is-active{% endif %}" {% if current_endpoint.startswith('stats.') %}aria-current="page"{% endif %}>📊 통계</a>
+            <a href="{{ url_for('gallery.collections_page') }}" class="{% if current_endpoint.startswith('gallery.collections') %}is-active{% endif %}" {% if current_endpoint.startswith('gallery.collections') %}aria-current="page"{% endif %}>📁 모음집</a>
+            <a href="{{ url_for('trash.trash_page') }}" class="{% if current_endpoint.startswith('trash.') %}is-active{% endif %}" {% if current_endpoint.startswith('trash.') %}aria-current="page"{% endif %}>🗑 휴지통</a>
+            <a href="{{ url_for('failed.failed_page') }}" class="{% if current_endpoint.startswith('failed.') %}is-active{% endif %}" {% if current_endpoint.startswith('failed.') %}aria-current="page"{% endif %}>❌ 실패</a>
+            <a href="{{ url_for('quarantine.quarantine_page') }}" class="{% if current_endpoint.startswith('quarantine.') %}is-active{% endif %}" {% if current_endpoint.startswith('quarantine.') %}aria-current="page"{% endif %}>🚧 격리</a>
+            </div>
         </div>
         <div class="global-nav__actions">
             <button type="button"
-                    class="theme-toggle"
+                    class="settings-icon top-nav-theme-toggle"
                     data-theme-toggle
-                    data-label-light="라이트"
-                    data-label-dark="다크"
+                    data-label-light="Light"
+                    data-label-dark="Dark"
                     data-icon-light="🌞"
                     data-icon-dark="🌙"
                     aria-pressed="false"
-                    aria-label="테마 전환">
+                    aria-label="Theme toggle">
                 <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">🌙</span>
-                <span class="theme-toggle__label" data-theme-label>다크</span>
             </button>
+            <div class="profile-menu" id="profile-menu">
+                <button id="profile-menu-toggle" class="settings-icon profile-menu-toggle" aria-label="프로필 메뉴" aria-haspopup="true" aria-expanded="false">👤</button>
+                <div id="profile-menu-panel" class="profile-menu-panel" role="menu" aria-label="프로필 메뉴">
+                    <button type="button" id="settings-btn" class="profile-menu-item" aria-label="설정">⚙ 설정</button>
+                </div>
+            </div>
+            {% block nav_actions %}{% endblock %}
         </div>
     </nav>
     {% endblock %}
@@ -46,7 +55,10 @@
     </main>
     {% endblock %}
 
+    {% include "partials/_settings_modal.html" %}
+
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
     {% block extra_scripts %}{% endblock %}
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

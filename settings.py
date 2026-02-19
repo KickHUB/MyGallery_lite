@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import ast
 from pathlib import Path
 from typing import List, Optional
 try:
@@ -117,6 +118,36 @@ def _to_float(x: str, default: float) -> float:
     except Exception:
         return default
 
+
+def _parse_allowed_ips(raw: str) -> List[str]:
+    text = (raw or "").strip()
+    if not text:
+        text = "127.0.0.1,localhost"
+
+    ips: List[str] = []
+
+    # Backward compatibility: allow python-list-like values
+    # e.g. "['127.0.0.1', 'localhost']".
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = ast.literal_eval(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, (list, tuple, set)):
+            for item in parsed:
+                token = str(item).strip().strip("\"'")
+                if token:
+                    ips.append(token)
+            if ips:
+                return ips
+
+    for part in text.split(","):
+        token = part.strip().strip("[]").strip().strip("\"'")
+        if token:
+            ips.append(token)
+
+    return ips
+
 # -----------------------------
 # Config with smart fallbacks
 # -----------------------------
@@ -139,6 +170,7 @@ USE_OFFSET_PAGINATION = _to_bool(os.getenv("USE_OFFSET_PAGINATION", "true"), Fal
 # Performance logs (request/DB timing)
 PERF_LOGS = _to_bool(os.getenv("PERF_LOGS", "true"), True)
 THUMB_LOG_SUMMARY = _to_bool(os.getenv("THUMB_LOG_SUMMARY", "true"), True)
+DEBUG_MODE = _to_bool(os.getenv("DEBUG_MODE", "false"), False)
 SPLIT_IMAGE_RELATION_LOADS = _to_bool(os.getenv("SPLIT_IMAGE_RELATION_LOADS", "true"), True)
 SEARCH_USE_FTS = _to_bool(os.getenv("SEARCH_USE_FTS", "true"), True)
 FTS_AUTO_BUILD = _to_bool(os.getenv("FTS_AUTO_BUILD", "false"), False)
@@ -254,7 +286,7 @@ FFPLAY_PATH = _expand_path(FFPLAY_PATH_RAW) if FFPLAY_PATH_RAW else ""
 EXIFTOOL_PATH = _expand_path(EXIFTOOL_PATH_RAW) if EXIFTOOL_PATH_RAW else ""
 
 PORT  = _to_int(os.getenv("PORT", "7860"), 7860)
-ALLOWED_IPS = [ip.strip() for ip in os.getenv("ALLOWED_IPS", "127.0.0.1,localhost").split(",") if ip.strip()]
+ALLOWED_IPS = _parse_allowed_ips(os.getenv("ALLOWED_IPS", "127.0.0.1,localhost"))
 
 # Database path (inside project)
 DB_PATH = (DATA_DIR / "gallery.db").as_posix()
@@ -309,27 +341,31 @@ WD14_THRESHOLD_CHARACTER = _to_float(os.getenv("WD14_THRESHOLD_CHARACTER", "0.85
 WD14_THRESHOLD_META = _to_float(os.getenv("WD14_THRESHOLD_META", "0.35"), 0.35)
 WD14_THRESHOLD_RATING = _to_float(os.getenv("WD14_THRESHOLD_RATING", "0.0"), 0.0)
 
-# Pretty logs
-print(f"[settings] PROJECT_ROOT: {PROJECT_ROOT.as_posix()}")
-print(f"[settings] SOURCE(raw): {SOURCE_RAW or '(not set)'}  ->  {SOURCE or '(not set)'}")
-print(f"[settings] DEST(raw):   {DEST_RAW or '(ignored in lite)'}  ->  {DEST or '(not set)'}")
-print(f"[settings] DB_PATH:     {DB_PATH}")
-print(f"[settings] DB_BACKUP_DIR: {DB_BACKUP_DIR or '(disabled)'}  MAX_DB_BACKUPS: {MAX_DB_BACKUPS}")
-print(f"[settings] TEMPLATE_FOLDER: {TEMPLATE_FOLDER}")
-print(f"[settings] STATIC_FOLDER:   {STATIC_FOLDER}")
-print(
-    f"[settings] INDEX_DIR: {INDEX_DIR}  "
-    f"FFMPEG_PATH: {FFMPEG_PATH or '(not set)'}  "
-    f"FFPROBE_PATH: {FFPROBE_PATH or '(not set)'}  "
-    f"FFPLAY_PATH: {FFPLAY_PATH or '(not set)'}  "
-    f"EXIFTOOL_PATH: {EXIFTOOL_PATH or '(not set)'}  "
-    f"PORT: {PORT}"
-)
-print(f"[settings] ALLOWED_IPS: {ALLOWED_IPS}")
-print(
-    "[settings] INTEGRITY_MISSING_SAMPLES_LIMIT: "
-    f"{INTEGRITY_MISSING_SAMPLES_LIMIT}  "
-    "INTEGRITY_DIAGNOSTICS_LIMIT: "
-    f"{INTEGRITY_DIAGNOSTICS_LIMIT}"
-)
-print(f"[settings] SECRET_KEY set: {'yes' if SECRET_KEY else 'no'}")
+if DEBUG_MODE:
+    # Verbose diagnostics for local development only.
+    print(f"[settings] DEBUG_MODE: on")
+    print(f"[settings] PROJECT_ROOT: {PROJECT_ROOT.as_posix()}")
+    print(f"[settings] SOURCE(raw): {SOURCE_RAW or '(not set)'}  ->  {SOURCE or '(not set)'}")
+    print(f"[settings] DEST(raw):   {DEST_RAW or '(ignored in lite)'}  ->  {DEST or '(not set)'}")
+    print(f"[settings] DB_PATH:     {DB_PATH}")
+    print(f"[settings] DB_BACKUP_DIR: {DB_BACKUP_DIR or '(disabled)'}  MAX_DB_BACKUPS: {MAX_DB_BACKUPS}")
+    print(f"[settings] TEMPLATE_FOLDER: {TEMPLATE_FOLDER}")
+    print(f"[settings] STATIC_FOLDER:   {STATIC_FOLDER}")
+    print(
+        f"[settings] INDEX_DIR: {INDEX_DIR}  "
+        f"FFMPEG_PATH: {FFMPEG_PATH or '(not set)'}  "
+        f"FFPROBE_PATH: {FFPROBE_PATH or '(not set)'}  "
+        f"FFPLAY_PATH: {FFPLAY_PATH or '(not set)'}  "
+        f"EXIFTOOL_PATH: {EXIFTOOL_PATH or '(not set)'}  "
+        f"PORT: {PORT}"
+    )
+    print(f"[settings] ALLOWED_IPS: {ALLOWED_IPS}")
+    print(
+        "[settings] INTEGRITY_MISSING_SAMPLES_LIMIT: "
+        f"{INTEGRITY_MISSING_SAMPLES_LIMIT}  "
+        "INTEGRITY_DIAGNOSTICS_LIMIT: "
+        f"{INTEGRITY_DIAGNOSTICS_LIMIT}"
+    )
+    print(f"[settings] SECRET_KEY set: {'yes' if SECRET_KEY else 'no'}")
+else:
+    print("[settings] DEBUG_MODE: off (verbose settings logs hidden)")

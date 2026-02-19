@@ -133,6 +133,130 @@
     }
   };
 
+  const initProfileMenu = () => {
+    const root = byId("profile-menu");
+    const toggle = byId("profile-menu-toggle");
+    const panel = byId("profile-menu-panel");
+    if (!root || !toggle || !panel) return;
+    if (root.dataset.menuBound === "1") return;
+    root.dataset.menuBound = "1";
+
+    let open = false;
+    const setOpen = (nextOpen) => {
+      open = !!nextOpen;
+      root.classList.toggle("open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setOpen(!open);
+    });
+
+    panel.addEventListener("click", (event) => {
+      if (event.target.closest(".profile-menu-item")) {
+        setOpen(false);
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!open) return;
+      if (!root.contains(event.target)) {
+        setOpen(false);
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && open) {
+        setOpen(false);
+      }
+    });
+  };
+
+  const openSettingsModal = () => {
+    const modal = byId("settings-modal");
+    if (!modal) return false;
+    if (typeof window.initSettingsTabs === "function" && document.body.dataset.settingsTabsInit !== "1") {
+      document.body.dataset.settingsTabsInit = "1";
+      window.initSettingsTabs();
+    } else if (document.body.dataset.settingsTabsFallbackInit !== "1") {
+      document.body.dataset.settingsTabsFallbackInit = "1";
+      const tabButtons = qsa(".settings-tab-button");
+      const tabPanels = qsa(".settings-tab-panel");
+      tabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = button.dataset.tabTarget;
+          tabButtons.forEach((item) => {
+            const isActive = item === button;
+            item.classList.toggle("active", isActive);
+            item.setAttribute("aria-selected", isActive ? "true" : "false");
+          });
+          tabPanels.forEach((panel) => {
+            panel.classList.toggle("active", panel.id === target);
+          });
+        });
+      });
+    }
+    if (typeof window.initEnvModeTabs === "function" && document.body.dataset.envTabsInit !== "1") {
+      document.body.dataset.envTabsInit = "1";
+      window.initEnvModeTabs();
+    }
+    modal.style.display = "block";
+    document.body.style.overflow = "hidden";
+    if (typeof window.loadEnvBasic === "function") {
+      window.loadEnvBasic();
+    }
+    return true;
+  };
+
+  const closeSettingsModal = () => {
+    const modal = byId("settings-modal");
+    if (!modal) return;
+    modal.style.display = "none";
+    document.body.style.overflow = "";
+  };
+
+  const initGlobalSettingsModal = () => {
+    const settingsBtn = byId("settings-btn");
+    if (settingsBtn && settingsBtn.dataset.settingsBound !== "1") {
+      settingsBtn.dataset.settingsBound = "1";
+      settingsBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const profileRoot = byId("profile-menu");
+        const profileToggle = byId("profile-menu-toggle");
+        if (profileRoot) profileRoot.classList.remove("open");
+        if (profileToggle) profileToggle.setAttribute("aria-expanded", "false");
+        openSettingsModal();
+      });
+    }
+
+    const closeBtn = byId("settings-close");
+    if (closeBtn && closeBtn.dataset.settingsBound !== "1") {
+      closeBtn.dataset.settingsBound = "1";
+      closeBtn.addEventListener("click", closeSettingsModal);
+    }
+
+    const modal = byId("settings-modal");
+    if (modal && modal.dataset.settingsBound !== "1") {
+      modal.dataset.settingsBound = "1";
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+          closeSettingsModal();
+        }
+      });
+    }
+
+    if (document.body.dataset.settingsBound !== "1") {
+      document.body.dataset.settingsBound = "1";
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        const settingsModal = byId("settings-modal");
+        if (!settingsModal || settingsModal.style.display !== "block") return;
+        closeSettingsModal();
+      });
+    }
+  };
+
   AppUtils.qs = qs;
   AppUtils.qsa = qsa;
   AppUtils.byId = byId;
@@ -141,12 +265,22 @@
   AppUtils.postForm = postForm;
   AppUtils.postJSON = postJSON;
   AppUtils.initThemeToggle = initThemeToggle;
+  AppUtils.initProfileMenu = initProfileMenu;
+  AppUtils.openSettingsModal = openSettingsModal;
+  AppUtils.closeSettingsModal = closeSettingsModal;
+  AppUtils.initGlobalSettingsModal = initGlobalSettingsModal;
 
   window.AppUtils = AppUtils;
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initThemeToggle);
-  } else {
+  const initGlobalUi = () => {
     initThemeToggle();
+    initProfileMenu();
+    initGlobalSettingsModal();
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initGlobalUi);
+  } else {
+    initGlobalUi();
   }
 })();

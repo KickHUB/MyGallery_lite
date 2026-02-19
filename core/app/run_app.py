@@ -21,6 +21,19 @@ from typing import Any, Dict
 
 default_environment = None
 Requirement = None
+MIN_SUPPORTED_PYTHON = (3, 10)
+MAX_SUPPORTED_PYTHON = (3, 14)
+
+
+def ensure_supported_python() -> None:
+    current = (sys.version_info.major, sys.version_info.minor)
+    if MIN_SUPPORTED_PYTHON <= current <= MAX_SUPPORTED_PYTHON:
+        return
+    current_text = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    supported_text = f"{MIN_SUPPORTED_PYTHON[0]}.{MIN_SUPPORTED_PYTHON[1]} ~ {MAX_SUPPORTED_PYTHON[0]}.{MAX_SUPPORTED_PYTHON[1]}"
+    raise SystemExit(
+        f"[ERROR] Unsupported Python version: {current_text}. Supported range: {supported_text}."
+    )
 
 
 def _ensure_packaging_bootstrap():
@@ -36,7 +49,7 @@ def _ensure_packaging_bootstrap():
         print("[INFO] 'packaging' is missing. Installing bootstrap dependency...")
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "packaging>=24.1,<26"]
+                [sys.executable, "-m", "pip", "install", "packaging>=24.1,<27"]
             )
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
@@ -243,6 +256,7 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
 
+    ensure_supported_python()
     ensure_virtualenv(repo_root)
     auto_install = args.repair or _bool_env("MYGALLERY_AUTO_INSTALL", False)
     requirements_path = repo_root / "requirements.txt"

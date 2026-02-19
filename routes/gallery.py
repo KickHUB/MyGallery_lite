@@ -13,7 +13,7 @@ from mimetypes import guess_type
 from PIL import Image, ImageSequence
 
 import settings as _settings
-from flask import Blueprint, render_template, request, jsonify, send_file, after_this_request
+from flask import Blueprint, render_template, request, jsonify, send_file, after_this_request, redirect, url_for
 
 from settings import (
     SOURCE,
@@ -2359,14 +2359,7 @@ def collections_page():
 
 @bp.get("/model_categories")
 def model_categories_page():
-    categories_cache = _get_cached_model_categories()
-    return render_template(
-        "model_categories.html",
-        categories=categories_cache["categories"],
-        category_tree=categories_cache["tree"],
-        category_options=categories_cache["options"],
-        models=_get_cached_models(),
-    )
+    return redirect(url_for("gallery.index"), code=303)
 
 
 @bp.post("/collections")
@@ -2408,42 +2401,7 @@ def collections_create_form():
 
 @bp.post("/model_categories")
 def model_categories_create_form():
-    name = (request.form.get("name") or "").strip()
-    parent_id = _parse_parent_id(request.form.get("parent_id"))
-    if not name:
-        categories_cache = _get_cached_model_categories()
-        return render_template(
-            "model_categories.html",
-            categories=categories_cache["categories"],
-            category_tree=categories_cache["tree"],
-            category_options=categories_cache["options"],
-            models=_get_cached_models(),
-            error_message="카테고리 이름을 입력하세요.",
-        ), 400
-    try:
-        cid = create_model_category(name, parent_id)
-    except Exception as exc:
-        categories_cache = _get_cached_model_categories()
-        return render_template(
-            "model_categories.html",
-            categories=categories_cache["categories"],
-            category_tree=categories_cache["tree"],
-            category_options=categories_cache["options"],
-            models=_get_cached_models(),
-            error_message=str(exc),
-        ), 400
-    _invalidate_model_categories_cache()
-    if request.is_json:
-        return jsonify({"id": cid, "name": name, "parent_id": parent_id})
-    categories_cache = _get_cached_model_categories()
-    return render_template(
-        "model_categories.html",
-        categories=categories_cache["categories"],
-        category_tree=categories_cache["tree"],
-        category_options=categories_cache["options"],
-        models=_get_cached_models(),
-        created_id=cid,
-    )
+    return redirect(url_for("gallery.index"), code=303)
 
 
 @bp.get("/collections/<int:collection_id>")
@@ -2467,22 +2425,7 @@ def collection_detail_page(collection_id: int):
 
 @bp.get("/model_categories/<int:category_id>")
 def model_category_detail_page(category_id: int):
-    category = get_model_category(category_id)
-    if not category:
-        return ("카테고리를 찾을 수 없습니다.", 404)
-    items = get_model_category_items(category_id)
-    categories_cache = _get_cached_model_categories()
-    children = get_model_category_children(category_id)
-    return render_template(
-        "model_categories.html",
-        categories=categories_cache["categories"],
-        category_tree=categories_cache["tree"],
-        category_options=categories_cache["options"],
-        models=_get_cached_models(),
-        current_category=category,
-        current_children=children,
-        model_items=items,
-    )
+    return redirect(url_for("gallery.index"), code=303)
 
 
 @bp.get("/api/collections")

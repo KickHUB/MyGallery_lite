@@ -19,6 +19,11 @@ _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 _ENV_KEY_REGEX = re.compile(r"^[A-Z0-9_]+$")
 
 _DANGER_KEYS = {"SECRET_KEY"}
+_REDACTED_VALUE = "__REDACTED__"
+_DANGER_ENV_LINE_REGEX = re.compile(
+    rf"^(\s*(?:export\s+)?)({'|'.join(re.escape(key) for key in sorted(_DANGER_KEYS))})\s*=.*$",
+    re.MULTILINE,
+)
 _RESTART_REQUIRED_KEYS = {
     "PORT",
     "SECRET_KEY",
@@ -390,6 +395,45 @@ def _safe_parse_env(text: str) -> dict[str, str]:
         return {}
 
 
+def _serialize_env_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _mask_danger_value(key: str, value: Any) -> Any:
+    if key not in _DANGER_KEYS:
+        return value
+    raw = "" if value is None else str(value)
+    return _REDACTED_VALUE if raw else ""
+
+
+def _is_redacted_value(value: Any) -> bool:
+    return str(value or "").strip() == _REDACTED_VALUE
+
+
+def _mask_env_text(text: str) -> str:
+    if not text or not _DANGER_KEYS:
+        return text or ""
+    return _DANGER_ENV_LINE_REGEX.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}={_REDACTED_VALUE}",
+        text,
+    )
+
+
+def _restore_redacted_env_text(text: str, old_env: dict[str, str]) -> str:
+    restored = text or ""
+    for key in _DANGER_KEYS:
+        pattern = re.compile(
+            rf"^(\s*(?:export\s+)?{re.escape(key)}\s*=\s*){re.escape(_REDACTED_VALUE)}\s*$",
+            re.MULTILINE,
+        )
+        restored = pattern.sub(lambda m: f"{m.group(1)}{old_env.get(key, '')}", restored)
+    return restored
+
+
 def _build_env_schema() -> Dict[str, Any]:
     groups = []
     for group in _BASE_ENV_GROUPS:
@@ -595,7 +639,8 @@ def _collect_schema_values(schema: Dict[str, Any]) -> Dict[str, Any]:
             key = field.get("key")
             if not key:
                 continue
-            values[key] = _get_value_for_key(key, field.get("type") or "string")
+            raw_value = _get_value_for_key(key, field.get("type") or "string")
+            values[key] = _mask_danger_value(key, raw_value)
     return values
 
 
@@ -799,7 +844,12 @@ def api_env_update():
             parsed_value = _parse_payload_value(key, value, meta.get("type", "string"), meta)
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
-        env_updates[key] = "1" if isinstance(parsed_value, bool) else str(parsed_value)
+
+        if key in _DANGER_KEYS and _is_redacted_value(parsed_value):
+            # UI sends redacted placeholders for danger keys when unchanged.
+            continue
+
+        env_updates[key] = _serialize_env_value(parsed_value)
         runtime_updates[key] = parsed_value
         if _is_restart_required(key):
             restart_keys.append(key)
@@ -814,9 +864,10 @@ def api_env_update():
         if "DEST" not in restart_keys:
             restart_keys.append("DEST")
 
-    update_env_vars(env_updates, env_path=str(_ENV_PATH))
-    for key, value in env_updates.items():
-        os.environ[key] = str(value)
+    if env_updates:
+        update_env_vars(env_updates, env_path=str(_ENV_PATH))
+        for key, value in env_updates.items():
+            os.environ[key] = str(value)
 
     for key, value in runtime_updates.items():
         if not _is_restart_required(key):
@@ -835,7 +886,7 @@ def api_env_update():
 
 @bp.get("/api/settings/env/raw")
 def api_env_raw_get():
-    return jsonify({"ok": True, "text": _load_env_text()})
+    return jsonify({"ok": True, "text": _mask_env_text(_load_env_text())})
 
 
 @bp.post("/api/settings/env/raw")
@@ -845,12 +896,15 @@ def api_env_raw_update():
     if text is None:
         return jsonify({"ok": False, "error": "저장할 텍스트가 없습니다."}), 400
 
+    old_env_text = _load_env_text()
+    old_env = _safe_parse_env(old_env_text)
+    normalized_text = _restore_redacted_env_text(str(text), old_env)
+
     try:
-        new_env = _validate_env_text(text)
+        new_env = _validate_env_text(normalized_text)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
-    old_env = _safe_parse_env(_load_env_text())
     added_keys = sorted(key for key in new_env.keys() if key not in old_env)
     removed_keys = sorted(key for key in old_env.keys() if key not in new_env)
     changed_keys = sorted(
@@ -859,7 +913,7 @@ def api_env_raw_update():
 
     dry_run = str(request.args.get("dry_run", "")).lower() in {"1", "true", "yes"}
     if not dry_run:
-        write_env_text(text, env_path=str(_ENV_PATH))
+        write_env_text(normalized_text, env_path=str(_ENV_PATH))
         for key in removed_keys:
             os.environ.pop(key, None)
         for key, value in new_env.items():

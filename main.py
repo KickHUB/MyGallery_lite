@@ -1,10 +1,31 @@
 from __future__ import annotations
 import json
-import os, sys, time, webbrowser, threading, socket, logging
+import os, sys, time, webbrowser, threading, logging
 from pathlib import Path
 import mimetypes
 from collections import deque
 from typing import Any, Dict
+
+MIN_SUPPORTED_PYTHON = (3, 10)
+MAX_SUPPORTED_PYTHON = (3, 14)
+
+
+def _ensure_supported_python() -> None:
+    current = (sys.version_info.major, sys.version_info.minor)
+    if MIN_SUPPORTED_PYTHON <= current <= MAX_SUPPORTED_PYTHON:
+        return
+    current_text = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    supported_text = (
+        f"{MIN_SUPPORTED_PYTHON[0]}.{MIN_SUPPORTED_PYTHON[1]} ~ "
+        f"{MAX_SUPPORTED_PYTHON[0]}.{MAX_SUPPORTED_PYTHON[1]}"
+    )
+    raise SystemExit(
+        f"[ERROR] Unsupported Python version: {current_text}. Supported range: {supported_text}."
+    )
+
+
+_ensure_supported_python()
+
 from flask import Flask, abort, g, jsonify, request
 from settings import (
     TEMPLATE_FOLDER,
@@ -13,6 +34,7 @@ from settings import (
     PORT,
     PERF_LOGS,
     THUMB_LOG_SUMMARY,
+    DEBUG_MODE,
     DEST,
     SECRET_KEY,
 )
@@ -31,13 +53,14 @@ from core.app.runtime_assets import run_runtime_asset_install, get_runtime_asset
 from routes import register_all
 
 def _configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+    log_level = logging.DEBUG if DEBUG_MODE else logging.INFO
+    logging.basicConfig(level=log_level, format='[%(levelname)s] %(message)s')
     root_logger = logging.getLogger()
-    if PERF_LOGS:
-        root_logger.setLevel(logging.INFO)
+    if PERF_LOGS or DEBUG_MODE:
+        root_logger.setLevel(log_level)
         for handler in root_logger.handlers:
-            if handler.level == logging.NOTSET or handler.level > logging.INFO:
-                handler.setLevel(logging.INFO)
+            if handler.level == logging.NOTSET or handler.level > log_level:
+                handler.setLevel(log_level)
     logging.getLogger("werkzeug").addFilter(_ThumbRequestLogFilter())
 
 def _register_mimetypes() -> None:
@@ -781,16 +804,6 @@ def restart_server():
 def restarting_page():
     return "<h1>♻ 서버 재시작 중...</h1><p>새 창을 확인하세요.</p>"
 
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-    finally:
-        s.close()
-
 if __name__ == "__main__":
     try:
         initialize_database()
@@ -812,7 +825,7 @@ if __name__ == "__main__":
 
     threading.Thread(target=open_browser, daemon=True).start()
 
-    network_url = f"http://{get_local_ip()}:{PORT}"
-    logger.info("📡 동일 네트워크 접속 주소: %s", network_url)
+    local_url = f"http://127.0.0.1:{PORT}"
+    logger.info("[INFO] Local-only mode: %s", local_url)
 
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    app.run(host="127.0.0.1", port=PORT, debug=DEBUG_MODE, use_reloader=False)

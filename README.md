@@ -14,6 +14,11 @@
 4. `python -m pip install -r requirements.txt`
 5. `python main.py`
 
+참고:
+- Python 3.10 ~ 3.14에서 동작합니다.
+- `requirements.txt`는 현재 Python 버전에 맞는 호환 패키지 버전 범위를 사용합니다.
+- `run_mygallery_venv.bat`는 설치된 Python 3(`py -3`)를 우선 사용해 venv를 생성합니다.
+
 ## 3) 초기 설정 (.env)
 
 1. `.env.example`을 복사해 `.env` 파일을 만듭니다.
@@ -21,6 +26,8 @@
 3. `DEST_FOLDER_NAME`을 지정합니다. (예: `Sorted_by_Date`)
 4. `DEST`는 Lite 정책상 자동 계산됩니다. (`SOURCE/DEST_FOLDER_NAME`)
 5. `.env`를 변경한 뒤 서버를 재시작합니다.
+6. 필요 시 `DEBUG_MODE=1`로 개발용 디버그 모드를 켭니다. (기본 `0`)
+7. 디버그 모드에서는 상세 설정 로그와 Flask 디버그 실행이 활성화됩니다.
 
 ## 4) 경로 설정 후 확인
 

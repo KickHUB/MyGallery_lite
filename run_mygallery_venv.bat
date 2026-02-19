@@ -9,7 +9,7 @@ set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
 if exist "%VENV_PYTHON%" goto :venv_ready
 
 echo [INFO] venv not found. Creating venv...
-py -3.10 -m venv venv
+py -3 -m venv venv
 if errorlevel 1 python -m venv venv
 
 if not exist "%VENV_PYTHON%" goto :venv_failed
