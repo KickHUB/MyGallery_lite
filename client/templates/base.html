@@ -38,12 +38,11 @@
                     aria-label="Theme toggle">
                 <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">🌙</span>
             </button>
-            <div class="profile-menu" id="profile-menu">
-                <button id="profile-menu-toggle" class="settings-icon profile-menu-toggle" aria-label="프로필 메뉴" aria-haspopup="true" aria-expanded="false">👤</button>
-                <div id="profile-menu-panel" class="profile-menu-panel" role="menu" aria-label="프로필 메뉴">
-                    <button type="button" id="settings-btn" class="profile-menu-item" aria-label="설정">⚙ 설정</button>
-                </div>
-            </div>
+            <button type="button"
+                    id="settings-btn"
+                    class="settings-icon top-nav-settings-btn"
+                    aria-label="설정"
+                    title="설정">⚙</button>
             {% block nav_actions %}{% endblock %}
         </div>
     </nav>

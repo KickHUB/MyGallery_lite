@@ -1850,6 +1850,15 @@ input[type="text"] { width: 300px; }
 .top-nav-theme-toggle .theme-toggle__icon {
     font-size: 18px;
 }
+.top-nav-settings-btn {
+    min-width: 40px;
+    height: 40px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
 .top-nav-link {
     text-decoration: none;
     color: inherit;
