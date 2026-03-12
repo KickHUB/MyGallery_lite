@@ -1,4 +1,8 @@
+<div align="center">
+  
 # MyGallery Lite
+
+</div>
 
 <div align="center">
 
