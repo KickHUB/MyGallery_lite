@@ -46,6 +46,38 @@ def _format_error(exc: Exception) -> str:
     return f"{type(exc).__name__}"
 
 
+def _display_path(path: str, base_dir: str) -> str:
+    try:
+        rel_path = os.path.relpath(path, base_dir)
+    except ValueError:
+        rel_path = Path(path).name
+    if not rel_path or rel_path.startswith(".."):
+        rel_path = Path(path).name
+    return rel_path.replace("\\", "/")
+
+
+def _sanitize_path_text(text: str, base_dir: str, *paths: str) -> str:
+    value = str(text or "")
+    candidates: list[tuple[str, str]] = []
+    for path in paths:
+        if not path:
+            continue
+        abs_path = os.path.abspath(path)
+        candidates.append((abs_path, _display_path(abs_path, base_dir)))
+    base_abs = os.path.abspath(base_dir)
+    candidates.append((base_abs, "<dest>"))
+    for original, replacement in candidates:
+        variants = {
+            original,
+            original.replace("\\", "/"),
+            original.replace("/", "\\"),
+            original.replace("\\", "\\\\"),
+        }
+        for candidate in variants:
+            value = value.replace(candidate, replacement)
+    return value
+
+
 def _safe_unique_path(base_dir: Path, filename: str) -> Path:
     target = base_dir / filename
     if not target.exists():
@@ -116,12 +148,16 @@ def build_thumb_for_file(abs_path: str, dest_dir: str) -> Tuple[str, str, Option
         generate_thumbnail(abs_path, thumb_path)
         return (abs_path, "created", None, None)
     except UnidentifiedImageError as exc:
-        error_message = _format_error(exc)
-        logger.warning("썸네일 생성 실패(손상 이미지): %s (%s)", abs_path, error_message, exc_info=exc)
+        error_message = _sanitize_path_text(_format_error(exc), dest_dir, abs_path, thumb_path)
+        logger.warning(
+            "썸네일 생성 실패(손상 이미지): %s (%s)",
+            _display_path(abs_path, dest_dir),
+            error_message,
+        )
         return (abs_path, "failed", error_message, "unidentified")
     except Exception as exc:
-        error_message = _format_error(exc)
-        logger.warning("썸네일 생성 실패: %s (%s)", abs_path, error_message, exc_info=exc)
+        error_message = _sanitize_path_text(_format_error(exc), dest_dir, abs_path, thumb_path)
+        logger.warning("썸네일 생성 실패: %s (%s)", _display_path(abs_path, dest_dir), error_message)
         return (abs_path, "failed", error_message, None)
 
 
@@ -136,7 +172,7 @@ def run_thumb_prebuild(
 ) -> dict:
     dest_dir = os.path.abspath(dest_dir)
     if not os.path.isdir(dest_dir):
-        raise FileNotFoundError(f"DEST 경로가 존재하지 않습니다: {dest_dir}")
+        raise FileNotFoundError("DEST 경로가 존재하지 않습니다. 설정을 확인하세요.")
 
     def emit(message: str) -> None:
         if log_cb:
@@ -183,6 +219,7 @@ def run_thumb_prebuild(
                 emit("썸네일 프리빌드가 취소되었습니다.")
                 break
             abs_path, status, error_message, category = future.result()
+            display_path = _display_path(abs_path, dest_dir)
             processed += 1
             if status == "created":
                 created += 1
@@ -191,22 +228,23 @@ def run_thumb_prebuild(
                 if category == "unidentified":
                     unidentified_failed += 1
                     if error_message:
-                        unidentified_items.append({"path": abs_path, "error": error_message})
-                    emit(f"손상 PNG 감지: {abs_path}")
+                        unidentified_items.append({"path": display_path, "error": error_message})
+                    emit(f"손상 PNG 감지: {display_path}")
                     if action in {"failed", "quarantine"}:
                         moved, target_path, move_error = _move_failure_file(abs_path, dest_dir, action)
                         if moved and target_path:
+                            target_display = _display_path(target_path, dest_dir)
                             if action == "failed":
                                 moved_failed += 1
-                                emit(f"failed 폴더 이동: {abs_path} -> {target_path}")
+                                emit(f"failed 폴더 이동: {display_path} -> {target_display}")
                             else:
                                 moved_quarantine += 1
-                                emit(f"격리 폴더 이동: {abs_path} -> {target_path}")
+                                emit(f"격리 폴더 이동: {display_path} -> {target_display}")
                         elif move_error:
                             label = "failed 폴더" if action == "failed" else "격리 폴더"
-                            emit(f"{label} 이동 실패: {abs_path} ({move_error})")
+                            emit(f"{label} 이동 실패: {display_path} ({_sanitize_path_text(move_error, dest_dir, abs_path)})")
                 if error_message:
-                    failed_items.append({"path": abs_path, "error": error_message})
+                    failed_items.append({"path": display_path, "error": error_message})
             else:
                 skipped += 1
             if progress_cb:

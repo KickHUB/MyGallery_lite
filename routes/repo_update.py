@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ from typing import Any, List, Optional
 from flask import Blueprint, jsonify, request
 
 bp = Blueprint("repo_update", __name__)
+logger = logging.getLogger(__name__)
 
 DEFAULT_REMOTE_URL = os.getenv(
     "MYGALLERY_UPDATE_REMOTE_URL",
@@ -56,6 +58,25 @@ def _get_request_value(key: str) -> Optional[Any]:
         return request.values.get(key)
     payload = request.get_json(silent=True) or {}
     return payload.get(key)
+
+
+def _sanitize_client_text(value: str, repo_root: Path) -> str:
+    text = str(value or "")
+    root = str(repo_root)
+    if not text or not root:
+        return text
+    variants = {
+        root,
+        root.replace("\\", "/"),
+        root.replace("/", "\\"),
+    }
+    for candidate in variants:
+        text = text.replace(candidate, "<repo>")
+    return text
+
+
+def _sanitize_client_logs(logs: List[str], repo_root: Path) -> List[str]:
+    return [_sanitize_client_text(line, repo_root) for line in logs if line]
 
 
 def _ensure_local_identity(repo_root: Path, log) -> None:
@@ -186,7 +207,7 @@ def api_update_mygallery() -> tuple:
             )
             warnings.append("Zip install detected. Initialized git metadata automatically before update.")
 
-        log(f"repo_root: {repo_root}")
+        log("repository root resolved")
         branch = _run_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
         old_commit = _run_git(repo_root, "rev-parse", "HEAD")
 
@@ -199,7 +220,6 @@ def api_update_mygallery() -> tuple:
                             "ok": False,
                             "error": "Local working tree is dirty. Commit/stash changes first.",
                             "details": status,
-                            "repo_root": str(repo_root),
                             "branch": branch,
                         }
                     ),
@@ -245,18 +265,28 @@ def api_update_mygallery() -> tuple:
                     "ok": True,
                     "updated": updated,
                     "restart_required": updated,
-                    "repo_root": str(repo_root),
                     "branch": branch.strip(),
                     "old_commit": old_commit.strip(),
                     "new_commit": new_commit.strip(),
                     "warnings": warnings,
-                    "logs": logs,
+                    "logs": _sanitize_client_logs(logs, repo_root),
                 }
             ),
             200,
         )
 
     except subprocess.TimeoutExpired:
-        return jsonify({"ok": False, "error": "git command timed out.", "logs": logs}), 504
+        logger.warning("Repository update timed out for %s", repo_root)
+        return jsonify({"ok": False, "error": "git command timed out.", "logs": _sanitize_client_logs(logs, repo_root)}), 504
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc), "logs": logs}), 500
+        logger.exception("Repository update failed")
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Failed to update repository. Check server logs for details.",
+                    "logs": _sanitize_client_logs(logs, repo_root),
+                }
+            ),
+            500,
+        )
