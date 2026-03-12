@@ -108,7 +108,9 @@ def _ensure_video_columns(conn: sqlite3.Connection) -> None:
         "prompt": "TEXT",
         "negative": "TEXT",
         "sampler": "TEXT",
+        "steps": "INTEGER",
         "cfg": "REAL",
+        "cfg_text": "TEXT",
         "seed": "INTEGER",
         "width": "INTEGER",
         "height": "INTEGER",
@@ -152,7 +154,9 @@ def ensure_videos_table():
                 prompt TEXT,
                 negative TEXT,
                 sampler TEXT,
+                steps INTEGER,
                 cfg REAL,
+                cfg_text TEXT,
                 seed INTEGER,
                 width INTEGER,
                 height INTEGER,
@@ -183,32 +187,106 @@ def _to_rel(path: str) -> str:
         # fallback: already relative
         return str(p).replace('\\','/')
 
-def _extract_meta(meta: Optional[Dict[str, Any]] = None, thumb_path: Optional[str] = None) -> Dict[str, Any]:
-    if meta is None and thumb_path:
-        meta = extract_prompt_from_file(thumb_path) or {}
+def _has_meta_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
 
-    meta = meta or {}
+
+def _merge_meta_dicts(primary: Optional[Dict[str, Any]], fallback: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    primary = primary or {}
+    fallback = fallback or {}
+    if not primary:
+        return dict(fallback)
+    if not fallback:
+        return dict(primary)
+
+    merged = dict(fallback)
+    extras: Dict[str, Any] = {}
+    fallback_extras = fallback.get("extras")
+    primary_extras = primary.get("extras")
+    if isinstance(fallback_extras, dict):
+        extras.update(fallback_extras)
+    if isinstance(primary_extras, dict):
+        extras.update(primary_extras)
+    if extras:
+        merged["extras"] = extras
+
+    for key, value in primary.items():
+        if key == "extras":
+            continue
+        if _has_meta_value(value):
+            merged[key] = value
+    return merged
+
+
+def _extract_meta(meta: Optional[Dict[str, Any]] = None, thumb_path: Optional[str] = None) -> Dict[str, Any]:
+    resolved_meta = dict(meta or {})
+    if thumb_path:
+        thumb_candidate = Path(thumb_path)
+        if meta is None:
+            try:
+                resolved_meta = extract_prompt_from_file(thumb_path) or {}
+            except Exception:
+                resolved_meta = {}
+        elif thumb_candidate.suffix.lower() == ".png":
+            try:
+                thumb_meta = extract_prompt_from_file(thumb_path) or {}
+            except Exception:
+                thumb_meta = {}
+            resolved_meta = _merge_meta_dicts(thumb_meta, resolved_meta)
+
+    meta = resolved_meta
     def _as_int(val):
         try:
             return int(str(val).strip())
         except (TypeError, ValueError):
             return None
 
-    def _as_float(val):
+    def _normalize_cfg(val):
+        if isinstance(val, (list, tuple)):
+            numeric_values = []
+            for item in val:
+                try:
+                    numeric_values.append(float(str(item).strip()))
+                except (TypeError, ValueError):
+                    continue
+            if not numeric_values:
+                return None, None
+            first = numeric_values[0]
+            if all(abs(item - first) < 1e-9 for item in numeric_values[1:]):
+                return first, None
+            return None, ", ".join(f"{item:g}" for item in numeric_values)
+        if isinstance(val, str):
+            stripped = val.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = json.loads(stripped)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, list):
+                    return _normalize_cfg(parsed)
         try:
-            return float(str(val).strip())
+            return float(str(val).strip()), None
         except (TypeError, ValueError):
-            return None
+            return None, None
 
     model_checkpoint = meta.get("model_checkpoint") or meta.get("model")
     models = meta.get("models")
     if not models and model_checkpoint:
         models = [model_checkpoint]
+    cfg_value, cfg_text = _normalize_cfg(meta.get("cfg"))
     return {
         "prompt": meta.get("positive") or meta.get("prompt") or "",
         "negative": meta.get("negative") or "",
         "sampler": meta.get("sampler"),
-        "cfg": _as_float(meta.get("cfg")),
+        "steps": _as_int(meta.get("steps")),
+        "cfg": cfg_value,
+        "cfg_text": cfg_text,
         "seed": _as_int(meta.get("seed")),
         "width": _as_int(meta.get("width")),
         "height": _as_int(meta.get("height")),
@@ -298,7 +376,9 @@ def upsert_video(abs_video: str, abs_thumb: str, meta: Optional[Dict[str, Any]] 
             prompt,
             negative,
             sampler,
+            steps,
             cfg,
+            cfg_text,
             seed,
             width,
             height,
@@ -308,7 +388,7 @@ def upsert_video(abs_video: str, abs_thumb: str, meta: Optional[Dict[str, Any]] 
             vae_name,
             sound
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(rel_video) DO UPDATE SET
             rel_thumb=excluded.rel_thumb,
             date=excluded.date,
@@ -317,7 +397,9 @@ def upsert_video(abs_video: str, abs_thumb: str, meta: Optional[Dict[str, Any]] 
             prompt=excluded.prompt,
             negative=excluded.negative,
             sampler=excluded.sampler,
+            steps=excluded.steps,
             cfg=excluded.cfg,
+            cfg_text=excluded.cfg_text,
             seed=excluded.seed,
             width=excluded.width,
             height=excluded.height,
@@ -336,7 +418,9 @@ def upsert_video(abs_video: str, abs_thumb: str, meta: Optional[Dict[str, Any]] 
             meta_values.get("prompt"),
             meta_values.get("negative"),
             meta_values.get("sampler"),
+            meta_values.get("steps"),
             meta_values.get("cfg"),
+            meta_values.get("cfg_text"),
             meta_values.get("seed"),
             meta_values.get("width"),
             meta_values.get("height"),
@@ -392,7 +476,7 @@ def query_videos(
     conn = _connect()
     cur = conn.cursor()
     sql = (
-        "SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, cfg, seed, width, height, "
+        "SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, steps, cfg, cfg_text, seed, width, height, "
         "model_checkpoint, models, loras, vae_name, sound "
         "FROM videos"
     )
@@ -425,7 +509,9 @@ def query_videos(
         prompt,
         negative,
         sampler,
+        steps,
         cfg,
+        cfg_text,
         seed,
         width,
         height,
@@ -438,11 +524,13 @@ def query_videos(
         thumb_rel = f"{DEST_FOLDER_NAME}/{rel_t}" if rel_t else f"{DEST_FOLDER_NAME}/{rel_v}"
         decoded_loras = _deserialize_loras(loras)
         decoded_models = _deserialize_models(models)
+        cfg_value = cfg if cfg is not None else (cfg_text or None)
         meta = {
             "prompt": prompt or "",
             "negative": negative or "",
             "sampler": sampler or "",
-            "cfg": cfg,
+            "steps": steps,
+            "cfg": cfg_value,
             "seed": seed,
             "width": width,
             "height": height,
@@ -461,7 +549,8 @@ def query_videos(
             "prompt": prompt or "",
             "negative": negative or "",
             "sampler": sampler or "",
-            "cfg": cfg,
+            "steps": steps,
+            "cfg": cfg_value,
             "seed": seed,
             "width": width,
             "height": height,
@@ -498,7 +587,7 @@ def get_video_by_rel(rel_video: str) -> Optional[Dict[str, Any]]:
     conn = _connect()
     cur = conn.cursor()
     cur.execute(
-        'SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, cfg, seed, width, height, model_checkpoint, models, loras, vae_name, sound FROM videos WHERE rel_video = ?',
+        'SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, steps, cfg, cfg_text, seed, width, height, model_checkpoint, models, loras, vae_name, sound FROM videos WHERE rel_video = ?',
         (normalized,),
     )
     row = cur.fetchone()
@@ -515,7 +604,9 @@ def get_video_by_rel(rel_video: str) -> Optional[Dict[str, Any]]:
         prompt,
         negative,
         sampler,
+        steps,
         cfg,
+        cfg_text,
         seed,
         width,
         height,
@@ -528,11 +619,13 @@ def get_video_by_rel(rel_video: str) -> Optional[Dict[str, Any]]:
     thumb_rel = f"{DEST_FOLDER_NAME}/{rel_t}" if rel_t else f"{DEST_FOLDER_NAME}/{rel_v}"
     decoded_loras = _deserialize_loras(loras)
     decoded_models = _deserialize_models(models)
+    cfg_value = cfg if cfg is not None else (cfg_text or None)
     meta = {
         "prompt": prompt or "",
         "negative": negative or "",
         "sampler": sampler or "",
-        "cfg": cfg,
+        "steps": steps,
+        "cfg": cfg_value,
         "seed": seed,
         "width": width,
         "height": height,
@@ -551,7 +644,8 @@ def get_video_by_rel(rel_video: str) -> Optional[Dict[str, Any]]:
         "prompt": prompt or "",
         "negative": negative or "",
         "sampler": sampler or "",
-        "cfg": cfg,
+        "steps": steps,
+        "cfg": cfg_value,
         "seed": seed,
         "width": width,
         "height": height,

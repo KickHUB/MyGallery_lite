@@ -6386,7 +6386,13 @@ function showExif() {
         return;
     }
     fetch("/exif?path=" + encodeURIComponent(exifTarget))
-        .then(res => res.text())
+        .then(async (res) => {
+            const data = await res.text();
+            if (!res.ok) {
+                throw new Error(data.trim() || "EXIF 정보를 불러오지 못했습니다.");
+            }
+            return data;
+        })
         .then(data => {
             const box = document.getElementById("exif-box");
             if (!data.trim()) {
@@ -6394,11 +6400,17 @@ function showExif() {
                 lastExifData = "";
                 return;
             }
-            box.innerHTML = "<strong>EXIF 정보:</strong><br>" + data;
+            const title = document.createElement("strong");
+            title.textContent = "EXIF 정보:";
+            const pre = document.createElement("pre");
+            pre.className = "modal-exif-pre";
+            pre.textContent = data;
+            box.replaceChildren(title, pre);
             lastExifData = data;
         })
         .catch(err => {
-            document.getElementById("exif-box").textContent = "❌ 오류: " + err;
+            const message = err instanceof Error ? err.message : String(err || "알 수 없는 오류");
+            document.getElementById("exif-box").textContent = "❌ 오류: " + message;
             lastExifData = "";
         });
 }
@@ -6652,7 +6664,11 @@ document.getElementById("download-no-exif")?.addEventListener("click", async fun
             return;
         }
         try {
-            const response = await fetch(`/download_video?path=${encodeURIComponent(currentImagePath)}`);
+            const response = await fetch("/download_video", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: currentImagePath }),
+            });
             if (!response.ok) {
                 const defaultMessage = "동영상 다운로드 실패";
                 const bodyText = await response.text();
@@ -6697,19 +6713,19 @@ document.getElementById("download-no-exif")?.addEventListener("click", async fun
     const isGifTarget = isGifFile(exifTarget);
 
     const newFileName = prompt("새 파일명을 입력하세요 (비워두면 랜덤 생성):", "");
-    const params = new URLSearchParams({
-        path: exifTarget,
-        name: newFileName
-    });
     const scalePayload = getDownloadScalePayload("modal-download-scale");
-    if (scalePayload?.scale) {
-        params.set("scale", String(scalePayload.scale));
-    } else if (scalePayload?.ratio) {
-        params.set("ratio", String(scalePayload.ratio));
-    }
 
     try {
-        const response = await fetch(`/remove_exif?${params.toString()}`);
+        const response = await fetch("/remove_exif", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                path: exifTarget,
+                name: newFileName,
+                scale: scalePayload?.scale ?? null,
+                ratio: scalePayload?.ratio ?? null,
+            }),
+        });
         if (!response.ok) {
             const defaultMessage = isGifTarget ? "GIF 메타데이터 제거 실패" : "EXIF 제거 실패";
             const message = (await response.text()) || defaultMessage;

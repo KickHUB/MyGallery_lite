@@ -114,6 +114,20 @@ def _make_random_name(length: int = 12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _request_payload() -> dict:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_value(key: str, default=None):
+    if request.values.get(key) is not None:
+        return request.values.get(key)
+    payload = _request_payload()
+    if key in payload:
+        return payload.get(key)
+    return default
+
+
 def _cache_valid(cache_entry: Dict[str, object], now: float) -> bool:
     return cache_entry.get("value") is not None and float(cache_entry.get("expires_at", 0.0)) > now
 
@@ -646,7 +660,8 @@ def _video_to_result(v):
     prompt = v.get("prompt") or meta.get("prompt") or ""
     negative = v.get("negative") or meta.get("negative") or ""
     sampler = v.get("sampler") or meta.get("sampler") or ""
-    cfg = v.get("cfg") if v.get("cfg") is not None else meta.get("cfg")
+    steps = v.get("steps") if v.get("steps") is not None else meta.get("steps")
+    cfg = v.get("cfg") if v.get("cfg") is not None else (v.get("cfg_text") if v.get("cfg_text") is not None else meta.get("cfg"))
     seed = v.get("seed") if v.get("seed") is not None else meta.get("seed")
     width = v.get("width") if v.get("width") is not None else meta.get("width") or 0
     height = v.get("height") if v.get("height") is not None else meta.get("height") or 0
@@ -670,6 +685,7 @@ def _video_to_result(v):
         "positive": prompt,
         "negative": negative,
         "sampler": sampler,
+        "steps": steps,
         "cfg": cfg,
         "seed": seed,
         "width": width,
@@ -875,7 +891,7 @@ def _fetch_group_items(
         placeholders = ",".join("?" for _ in video_paths)
         cur.execute(
             f'''
-            SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, cfg, seed,
+            SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, steps, cfg, cfg_text, seed,
                    width, height, model_checkpoint, models, loras, vae_name, sound
             FROM videos
             WHERE rel_video IN ({placeholders})
@@ -1160,7 +1176,6 @@ def _merge_all_media(
 # ---------- pages ----------
 @bp.get("/")
 def index():
-    action = request.args.get("action", "search")
     query = request.args.get("q", "").lower()
     sort_order = request.args.get("sort", "desc")
     match_mode = request.args.get("match", "and")
@@ -1194,13 +1209,6 @@ def index():
     collection_subtree_cache: Dict[int, List[int]] = {}
     model_category_subtree_cache: Dict[int, List[int]] = {}
     search_mode = f"{tag_source}_{match_mode}"
-
-    if action == "cleanup":
-        from core.ops.full_refresh import full_refresh
-        full_refresh()
-        _invalidate_models_cache()
-        from flask import redirect, url_for
-        return redirect(url_for("gallery.index"))
 
     collections_cache = _get_cached_collections()
     collections_data = collections_cache["collections"]
@@ -2016,7 +2024,7 @@ def api_related():
         if fetch_videos:
             cur.execute(
                 '''
-                SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, cfg, seed,
+                SELECT rel_video, rel_thumb, date, mtime, size, prompt, negative, sampler, steps, cfg, cfg_text, seed,
                        width, height, model_checkpoint, models, loras, vae_name, sound
                 FROM videos
                 WHERE phash = ?
@@ -2068,7 +2076,7 @@ def api_related():
             video_sql = (
                 '''
                 SELECT videos.rel_video, videos.rel_thumb, videos.date, videos.mtime, videos.size, videos.prompt,
-                       videos.negative, videos.sampler, videos.cfg, videos.seed, videos.width, videos.height,
+                       videos.negative, videos.sampler, videos.steps, videos.cfg, videos.cfg_text, videos.seed, videos.width, videos.height,
                        videos.model_checkpoint, videos.models, videos.loras, videos.vae_name, videos.sound,
                        rel.distance AS rel_distance
                 FROM videos
@@ -2652,7 +2660,7 @@ def get_image():
         response.cache_control.public = True
         response.cache_control.max_age = 60 * 60 * 24
         return response
-    return (f"이미지 파일을 찾을 수 없습니다: {abs_path}", 404)
+    return ("이미지 파일을 찾을 수 없습니다.", 404)
 
 
 @bp.get("/thumb")
@@ -2718,15 +2726,15 @@ def get_file():
         response.cache_control.public = True
         response.cache_control.max_age = 60 * 60 * 24
         return response
-    return (f"파일을 찾을 수 없습니다: {abs_path}", 404)
+    return ("파일을 찾을 수 없습니다.", 404)
 
-@bp.get("/download_video")
+@bp.post("/download_video")
 def download_video():
-    abs_path = _resolve_media_path(request.args.get("path"))
+    abs_path = _resolve_media_path(_request_value("path"))
     if not abs_path:
         return ("영상 경로가 잘못되었습니다.", 400)
     if not os.path.isfile(abs_path):
-        return (f"영상 파일을 찾을 수 없습니다: {abs_path}", 404)
+        return ("영상 파일을 찾을 수 없습니다.", 404)
 
     mime, _ = guess_type(abs_path)
     is_video_like = (mime or "").startswith("video") or (mime or "") == "image/gif"
@@ -2753,12 +2761,13 @@ def download_video():
         try:
             _strip_gif_metadata(abs_path, new_path)
         except Exception as exc:
+            logger.exception("GIF 메타데이터 제거 실패")
             if os.path.exists(new_path):
                 try:
                     os.remove(new_path)
                 except OSError:
                     pass
-            return block_download(f"GIF 메타데이터 제거 실패 ({exc})")
+            return block_download("GIF 메타데이터 제거 실패")
 
         @after_this_request
         def cleanup_gif(response):
@@ -2873,7 +2882,8 @@ def download_batch():
                     _strip_gif_metadata(abs_path, target_path)
                     prepared.append((target_path, download_name))
                 except Exception as exc:
-                    errors.append(f"{base_name}: GIF 메타데이터 제거 실패 ({exc})")
+                    logger.exception("배치 GIF 메타데이터 제거 실패: %s", base_name)
+                    errors.append(f"{base_name}: GIF 메타데이터 제거 실패")
             else:
                 download_name = f"{rand_name}.png"
                 target_path = os.path.join(temp_dir, download_name)
@@ -2888,7 +2898,8 @@ def download_batch():
                         cleaned.save(target_path, "PNG")
                     prepared.append((target_path, download_name))
                 except Exception as exc:
-                    errors.append(f"{base_name}: EXIF 제거 실패 ({exc})")
+                    logger.exception("배치 EXIF 제거 실패: %s", base_name)
+                    errors.append(f"{base_name}: EXIF 제거 실패")
             continue
 
         ext = os.path.splitext(abs_path)[1] or ".dat"
@@ -3020,9 +3031,8 @@ def download_scaled():
         try:
             _save_resized_gif(abs_path, cleaned_path, scale, ratio)
         except Exception as exc:
-            message = str(exc).strip()
-            detail = f": {message}" if message else ""
-            return (f"GIF 리사이즈에 실패했습니다{detail}", 500)
+            logger.exception("GIF 리사이즈 실패")
+            return ("GIF 리사이즈에 실패했습니다.", 500)
 
         @after_this_request
         def cleanup_gif(response):
@@ -3087,12 +3097,19 @@ def get_exif():
     if not abs_path:
         return ("경로가 잘못되었습니다.", 400)
     if not os.path.isfile(abs_path):
-        return (f"파일을 찾을 수 없습니다: {abs_path}", 404)
+        return ("파일을 찾을 수 없습니다.", 404)
     exiftool_path = _ensure_exiftool_available()
-    r = subprocess.run([exiftool_path, abs_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    r = subprocess.run(
+        [exiftool_path, abs_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if r.returncode != 0:
-        return (f"ExifTool 오류: {r.stderr}", 500)
-    return f"<pre>{r.stdout}</pre>"
+        return ("ExifTool 오류가 발생했습니다.", 500)
+    return (r.stdout, 200, {"Content-Type": "text/plain; charset=utf-8"})
 
 @bp.get("/prompts")
 def prompts_page():
@@ -3170,15 +3187,16 @@ def autocomplete():
     if not q: return jsonify([])
     return jsonify(autocomplete_tags(q, limit=10))
 
-@bp.get("/remove_exif")
+@bp.post("/remove_exif")
 def remove_exif():
-    abs_path = _resolve_media_path(request.args.get("path"))
-    new_name_input = (request.args.get("name") or "").strip()
-    scale = _parse_scale_value(request.args.get("scale"))
+    abs_path = _resolve_media_path(_request_value("path"))
+    new_name_input = str(_request_value("name") or "").strip()
+    scale = _parse_scale_value(_request_value("scale"))
+    ratio = _parse_ratio_value(_request_value("ratio"))
     if not abs_path:
         return ("경로가 잘못되었습니다.", 400)
     if not os.path.isfile(abs_path):
-        return (f"파일을 찾을 수 없습니다: {abs_path}", 404)
+        return ("파일을 찾을 수 없습니다.", 404)
 
     new_name = os.path.basename(new_name_input)
     if new_name in ("", ".", ".."):
@@ -3196,9 +3214,10 @@ def remove_exif():
         temp_name = f"{_make_random_name(12)}.gif"
         temp_path = os.path.join(temp_dir, temp_name)
         try:
-            _strip_gif_metadata(abs_path, temp_path)
+            _save_resized_gif(abs_path, temp_path, scale, ratio)
         except Exception as exc:
-            return (f"GIF 메타데이터 제거 실패: {exc}", 500)
+            logger.exception("GIF 메타데이터 제거 실패")
+            return ("GIF 메타데이터 제거 실패", 500)
 
         @after_this_request
         def cleanup(response):
@@ -3239,14 +3258,15 @@ def remove_exif():
     try:
         with Image.open(abs_path) as img:
             resized = img
-            new_size = _calculate_resized_dimensions(img.size, scale, None)
+            new_size = _calculate_resized_dimensions(img.size, scale, ratio)
             if new_size and new_size != img.size:
                 resized = img.resize(new_size, resample=Image.LANCZOS)
             target_mode = "RGBA" if "A" in resized.getbands() else "RGB"
             cleaned = resized.convert(target_mode)
             cleaned.save(new_path, "PNG")
     except Exception as exc:
-        return (f"EXIF 제거 실패: {exc}", 500)
+        logger.exception("EXIF 제거 실패")
+        return ("EXIF 제거 실패", 500)
 
     @after_this_request
     def cleanup(response):

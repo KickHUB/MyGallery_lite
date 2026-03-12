@@ -957,7 +957,7 @@ def parse_png(png: Path) -> Tuple[Dict[str, Any], str]:
             "seed": seed, "steps": steps, "cfg": cfg, "sampler": sampler, "scheduler": scheduler,
             "denoise": denoise, "positive_prompt": pos_text, "negative_prompt": neg_text,
             "model_checkpoint": model_checkpoint, "models": models, "loras": loras or None,
-            "workflow_id": wf_id, "node_count": node_count,
+            "workflow_id": wf_id, "node_count": node_count, "vae_name": vae_name,
         }
         result.update(base_result)
         if prompt_json is not None:
@@ -994,7 +994,7 @@ def parse_png(png: Path) -> Tuple[Dict[str, Any], str]:
             "sampler": info.get("sampler"), "scheduler": info.get("scheduler"),
             "denoise": info.get("denoise"), "positive_prompt": pos_text, "negative_prompt": neg_text,
             "model_checkpoint": model_checkpoint, "models": models, "loras": loras or None,
-            "workflow_id": wf_id, "node_count": node_count, **extras
+            "workflow_id": wf_id, "node_count": node_count, "vae_name": vae_name, **extras
         }
         result.update(base_result)
         if prompt_json is not None:
@@ -1036,6 +1036,208 @@ def parse_png(png: Path) -> Tuple[Dict[str, Any], str]:
         return result, "ok"
 
     return base_result, "no_ksampler"
+
+
+def parse_comfy_payload(
+    prompt_value: Any,
+    workflow_value: Any = None,
+    parameters_value: Any = None,
+    *,
+    file: Optional[str] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    created: Optional[str] = None,
+) -> Tuple[Dict[str, Any], str]:
+    prompt_json = _maybe_parse_json(prompt_value)
+    parameters_json = _maybe_parse_json(parameters_value)
+    workflow_json = _maybe_parse_json(workflow_value)
+    if prompt_json is None and parameters_json is not None:
+        prompt_json = parameters_json
+
+    raw_prompt = prompt_value
+    raw_workflow = workflow_value
+    raw_parameters = parameters_value
+    base_result = {
+        "Prompt_raw": raw_prompt,
+        "Workflow_raw": raw_workflow,
+        "parameters_raw": raw_parameters,
+    }
+
+    if prompt_json is None and workflow_json is None:
+        status = "parse_failed" if any([raw_prompt, raw_parameters, raw_workflow]) else "no_meta"
+        return base_result, status
+
+    if prompt_json and "nodes" in prompt_json and workflow_json is None:
+        workflow_json = prompt_json
+    api = prompt_json or workflow_json
+    if not isinstance(api, dict):
+        return base_result, "parse_failed"
+
+    nodes = build_nodes_dict(api)
+    if not nodes:
+        return base_result, "no_nodes"
+
+    wf_id = None
+    if isinstance(workflow_json, dict):
+        wf_id = workflow_json.get("id")
+    node_count = len(nodes)
+    final_sampler_id = None
+    for nid, n in nodes.items():
+        if (n.get("class_type") or "").lower().startswith("vaedecode"):
+            sin = (n.get("inputs", {}) or {}).get("samples")
+            if sin:
+                final_sampler_id = str(sin[0])
+                break
+    if not final_sampler_id:
+        for nid, n in nodes.items():
+            if (n.get("class_type") or "").lower().startswith("saveimage"):
+                img_in = (n.get("inputs", {}) or {}).get("images") or (n.get("inputs", {}) or {}).get("image")
+                if img_in:
+                    src = nodes.get(str(img_in[0]))
+                    if src and (src.get("class_type") or "").lower().startswith("vaedecode"):
+                        sin = (src.get("inputs", {}) or {}).get("samples")
+                        if sin:
+                            final_sampler_id = str(sin[0])
+                            break
+                    else:
+                        final_sampler_id = str(img_in[0])
+                        break
+
+    if final_sampler_id and final_sampler_id in nodes and is_ksampler_advanced(nodes[final_sampler_id]):
+        adv = resolve_ksampler_advanced_chain(nodes, final_sampler_id)
+        seed = adv.get("seed")
+        steps = adv.get("steps")
+        cfg = adv.get("cfg")
+        sampler = adv.get("sampler")
+        scheduler = adv.get("scheduler")
+        denoise = None
+        pos_text = adv.get("positive_prompt")
+        neg_text = adv.get("negative_prompt")
+        models, vae_name, loras = scan_models_loras(nodes)
+        model_checkpoint = models[0] if models else None
+        result = {
+            "file": file,
+            "width": width,
+            "height": height,
+            "created": created,
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler": sampler,
+            "scheduler": scheduler,
+            "denoise": denoise,
+            "positive_prompt": pos_text,
+            "negative_prompt": neg_text,
+            "model_checkpoint": model_checkpoint,
+            "models": models,
+            "loras": loras or None,
+            "workflow_id": wf_id,
+            "node_count": node_count,
+            "vae_name": vae_name,
+        }
+        result.update(base_result)
+        if prompt_json is not None:
+            result["Prompt"] = prompt_json
+        if workflow_json is not None:
+            result["Workflow"] = workflow_json
+        return result, "ok"
+
+    ks = None
+    for _, n in nodes.items():
+        if is_ksampler_like(n):
+            ks = n
+            break
+    if ks:
+        info = resolve_standard_ksampler(nodes, ks)
+        pos = (ks.get("inputs", {}) or {}).get("positive")
+        neg = (ks.get("inputs", {}) or {}).get("negative")
+        pos_text = gather_texts_from_conditioning(nodes, pos, branch="positive") or resolve_clip_text(nodes, pos) or find_cliptext_by_meta_title(nodes, "Positive")
+        neg_text = gather_texts_from_conditioning(nodes, neg, branch="negative") or resolve_clip_text(nodes, neg) or find_cliptext_by_meta_title(nodes, "Negative")
+        neg_zeroed = _path_contains_conditioning_zero_out(nodes, neg, branch="negative")
+        if neg_zeroed:
+            neg_text = "ConditioningZeroOut"
+        if pos_text is None and _path_has_empty_clip_text(nodes, pos, branch="positive"):
+            pos_text = ""
+        if not neg_zeroed and neg_text is None and _path_has_empty_clip_text(nodes, neg, branch="negative"):
+            neg_text = ""
+        extras = {}
+        if "cycle" in (ks.get("class_type") or "").lower():
+            extras = resolve_kcycle_extras(nodes, ks)
+        models, vae_name, loras = scan_models_loras(nodes)
+        model_checkpoint = models[0] if models else None
+        result = {
+            "file": file,
+            "width": width,
+            "height": height,
+            "created": created,
+            "seed": info.get("seed"),
+            "steps": info.get("steps"),
+            "cfg": info.get("cfg"),
+            "sampler": info.get("sampler"),
+            "scheduler": info.get("scheduler"),
+            "denoise": info.get("denoise"),
+            "positive_prompt": pos_text,
+            "negative_prompt": neg_text,
+            "model_checkpoint": model_checkpoint,
+            "models": models,
+            "loras": loras or None,
+            "workflow_id": wf_id,
+            "node_count": node_count,
+            "vae_name": vae_name,
+            **extras,
+        }
+        result.update(base_result)
+        if prompt_json is not None:
+            result["Prompt"] = prompt_json
+        if workflow_json is not None:
+            result["Workflow"] = workflow_json
+        return result, "ok"
+
+    flux = None
+    for _, n in nodes.items():
+        if is_flux_sampler(n):
+            flux = n
+            break
+    if flux:
+        bundle = resolve_flux_bundle(nodes, flux)
+        models, vae_name2, loras = scan_models_loras(nodes)
+        bundle_checkpoint = bundle.get("model_checkpoint")
+        if bundle_checkpoint and bundle_checkpoint not in models:
+            models = [bundle_checkpoint, *models]
+        model_checkpoint = bundle_checkpoint or (models[0] if models else None)
+        result = {
+            "file": file,
+            "width": width,
+            "height": height,
+            "created": created,
+            "seed": bundle.get("seed"),
+            "steps": bundle.get("steps"),
+            "cfg": bundle.get("guidance"),
+            "sampler": bundle.get("sampler"),
+            "scheduler": bundle.get("scheduler"),
+            "denoise": bundle.get("denoise"),
+            "positive_prompt": bundle.get("positive_prompt"),
+            "negative_prompt": bundle.get("negative_prompt"),
+            "model_checkpoint": model_checkpoint,
+            "models": models,
+            "loras": loras or None,
+            "workflow_id": wf_id,
+            "node_count": node_count,
+            "guidance": bundle.get("guidance"),
+            "vae_name": bundle.get("vae_name") or vae_name2,
+            "text_encoder1": bundle.get("text_encoder1"),
+            "text_encoder2": bundle.get("text_encoder2"),
+            "model_type": bundle.get("model_type"),
+        }
+        result.update(base_result)
+        if prompt_json is not None:
+            result["Prompt"] = prompt_json
+        if workflow_json is not None:
+            result["Workflow"] = workflow_json
+        return result, "ok"
+
+    return base_result, "no_ksampler"
+
 
 def _basename_only(value: Optional[str]) -> Optional[str]:
     if not value:
@@ -1156,7 +1358,7 @@ def _exclude_reason(
         first = rel_parts[0]
         if DATE_FOLDER_PATTERN.fullmatch(first):
             return None
-        content_subdir = (getattr(settings, 'DEST_CONTENT_SUBDIR', '') or '').strip().strip('\/')
+        content_subdir = (getattr(settings, 'DEST_CONTENT_SUBDIR', '') or '').strip().strip('/\\')
         if content_subdir and first == content_subdir and len(rel_parts) >= 2 and DATE_FOLDER_PATTERN.fullmatch(rel_parts[1]):
             return None
         return "non_date_folder"

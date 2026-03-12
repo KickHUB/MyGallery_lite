@@ -63,6 +63,7 @@
                 </div>
                 <p class="settings-hint">설치가 완료되면 관련 경로가 .env에 자동 저장됩니다.</p>
                 <form method="POST" action="/restart" class="settings-form" id="restart-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="settings-action-btn settings-action-btn--blue">
                         ♻ 서버 재시작
                     </button>

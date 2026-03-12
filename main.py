@@ -1,10 +1,11 @@
 from __future__ import annotations
 import json
-import os, sys, time, webbrowser, threading, logging
+import os, sys, time, webbrowser, threading, logging, secrets
 from pathlib import Path
 import mimetypes
 from collections import deque
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 MIN_SUPPORTED_PYTHON = (3, 10)
 MAX_SUPPORTED_PYTHON = (3, 14)
@@ -26,7 +27,7 @@ def _ensure_supported_python() -> None:
 
 _ensure_supported_python()
 
-from flask import Flask, abort, g, jsonify, request
+from flask import Flask, abort, g, jsonify, render_template_string, request, session
 from settings import (
     TEMPLATE_FOLDER,
     STATIC_FOLDER,
@@ -163,7 +164,129 @@ app = Flask(__name__, template_folder=TEMPLATE_FOLDER, static_folder=STATIC_FOLD
 if SECRET_KEY:
     app.secret_key = SECRET_KEY
 else:
-    logger.warning("SECRET_KEY가 설정되지 않았습니다. 세션이 불안정할 수 있습니다.")
+    app.secret_key = secrets.token_urlsafe(32)
+    logger.warning("SECRET_KEY가 설정되지 않아 임시 세션 키를 사용합니다. 재시작 시 세션이 재발급됩니다.")
+app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_CSRF_SESSION_KEY = "_csrf_token"
+_CSRF_HEADER_NAME = "X-CSRF-Token"
+_CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+
+
+def _get_or_create_csrf_token() -> str:
+    token = session.get(_CSRF_SESSION_KEY)
+    if token:
+        return str(token)
+    token = secrets.token_urlsafe(32)
+    session[_CSRF_SESSION_KEY] = token
+    return token
+
+
+def _request_origin() -> str:
+    return request.host_url.rstrip("/")
+
+
+def _header_origin(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _is_same_request_origin(value: str | None) -> bool:
+    origin = _header_origin(value)
+    if not origin:
+        return False
+    return secrets.compare_digest(origin, _request_origin())
+
+
+def _is_json_request() -> bool:
+    accept = request.accept_mimetypes
+    if request.path.startswith("/api/") or request.path.startswith("/data/"):
+        return True
+    if accept.accept_json and not accept.accept_html:
+        return True
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return True
+    return request.is_json
+
+
+def _security_error_response(message: str, status_code: int = 403):
+    if _is_json_request():
+        return jsonify({"ok": False, "error": message}), status_code
+    return f"<h2>❌ {message}</h2>", status_code
+
+
+def _read_csrf_token_from_request() -> str:
+    token = request.headers.get(_CSRF_HEADER_NAME) or request.form.get("csrf_token")
+    if token:
+        return str(token)
+    payload = request.get_json(silent=True)
+    if isinstance(payload, dict):
+        raw = payload.get("csrf_token")
+        if raw is not None:
+            return str(raw)
+    return ""
+
+
+def _render_restart_handoff_page(message: str):
+    csrf_token = _get_or_create_csrf_token()
+    return render_template_string(
+        """<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>재시작 준비 중</title>
+</head>
+<body>
+    <h1>♻ 서버 재시작 준비 중...</h1>
+    <p>{{ message }}</p>
+    <form id="restart-handoff-form" method="POST" action="/restart">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">재시작 계속</button>
+    </form>
+    <script>
+        window.setTimeout(function () {
+            var form = document.getElementById("restart-handoff-form");
+            if (form) form.submit();
+        }, 50);
+    </script>
+    <noscript>
+        <p>자동으로 진행되지 않으면 위 버튼을 눌러주세요.</p>
+    </noscript>
+</body>
+</html>
+""",
+        csrf_token=csrf_token,
+        message=message,
+    )
+
+
+@app.context_processor
+def inject_security_context() -> Dict[str, str]:
+    return {"csrf_token": _get_or_create_csrf_token()}
 
 
 @app.before_request
@@ -171,6 +294,51 @@ def _start_request_timer() -> None:
     if not PERF_LOGS:
         return
     g._perf_start = time.perf_counter()
+
+
+@app.before_request
+def _protect_state_changing_requests():
+    if request.method not in _STATE_CHANGING_METHODS:
+        return None
+
+    sec_fetch_site = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if sec_fetch_site and sec_fetch_site not in {"same-origin", "same-site", "none"}:
+        logger.warning(
+            "❌ cross-site state change blocked: method=%s path=%s site=%s",
+            request.method,
+            request.path,
+            sec_fetch_site,
+        )
+        return _security_error_response("외부 사이트에서 시작된 상태 변경 요청은 허용되지 않습니다.")
+
+    origin = request.headers.get("Origin")
+    if origin and not _is_same_request_origin(origin):
+        logger.warning(
+            "❌ origin mismatch blocked: method=%s path=%s origin=%s host=%s",
+            request.method,
+            request.path,
+            origin,
+            _request_origin(),
+        )
+        return _security_error_response("요청 출처가 현재 앱과 일치하지 않습니다.")
+
+    referer = request.headers.get("Referer")
+    if referer and not _is_same_request_origin(referer):
+        logger.warning(
+            "❌ referer mismatch blocked: method=%s path=%s referer=%s host=%s",
+            request.method,
+            request.path,
+            referer,
+            _request_origin(),
+        )
+        return _security_error_response("요청 출처가 현재 앱과 일치하지 않습니다.")
+
+    expected_token = _get_or_create_csrf_token()
+    provided_token = _read_csrf_token_from_request()
+    if not provided_token or not secrets.compare_digest(provided_token, expected_token):
+        logger.warning("❌ csrf token mismatch blocked: method=%s path=%s", request.method, request.path)
+        return _security_error_response("보안 토큰이 없거나 만료되었습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.")
+    return None
 
 
 @app.after_request
@@ -200,6 +368,15 @@ def _apply_monitoring_cache_headers(response):
         build_id = get_static_build_id(app.static_folder, "script.js")
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
         response.set_etag(build_id, weak=True)
+    return response
+
+
+@app.after_request
+def _apply_security_headers(response):
+    response.headers.setdefault("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
     return response
 
 register_all(app)
@@ -598,7 +775,7 @@ def restrict_ip():
 
 @app.route("/update_paths", methods=["POST"])
 def update_paths():
-    from flask import request, redirect
+    from flask import request
     from core.utils.env_utils import update_env_vars
 
     source = request.form.get("source","").strip()
@@ -617,7 +794,7 @@ def update_paths():
         },
         env_path=str(env_path),
     )
-    return redirect("/restart")
+    return _render_restart_handoff_page("경로 설정이 저장되었습니다. 서버를 안전하게 재시작합니다.")
 
 @app.route("/refresh", methods=["POST"])
 def refresh_all():
@@ -693,7 +870,8 @@ def data_booru_dict_meta():
                 pass
         return jsonify({"meta": meta})
     except Exception as exc:
-        return jsonify({"error": str(exc), "meta": {}}), 500
+        logger.exception("Danbooru 태그DB 메타 조회 실패: %s", exc)
+        return jsonify({"error": "Danbooru 태그DB 상태를 불러오지 못했습니다.", "meta": {}}), 500
 
 
 @app.post("/data/runtime-install")
@@ -732,7 +910,8 @@ def data_runtime_assets_meta():
     try:
         return jsonify({"meta": get_runtime_assets_meta()})
     except Exception as exc:
-        return jsonify({"error": str(exc), "meta": {}}), 500
+        logger.exception("런타임 도구 메타 조회 실패: %s", exc)
+        return jsonify({"error": "런타임 도구 상태를 불러오지 못했습니다.", "meta": {}}), 500
 
 
 @app.get("/data/status")
@@ -750,7 +929,7 @@ def data_task_cancel():
     status_code = 200 if "error" not in payload else 409
     return jsonify(payload), status_code
 
-@app.route("/restart", methods=["GET","POST"])
+@app.post("/restart")
 def restart_server():
     from flask import jsonify, request
 
@@ -760,7 +939,7 @@ def restart_server():
             cancel_requested = str(request.values.get("cancel_refresh", "")).lower() in {"1", "true", "yes", "y"}
             force_exit = str(request.values.get("force", "")).lower() in {"1", "true", "yes", "y"}
             if not cancel_requested:
-                message = "현재 전체 재정리 작업이 실행 중입니다. ?cancel_refresh=1 파라미터로 취소 후 재시작할 수 있습니다."
+                message = "현재 전체 재정리 작업이 실행 중입니다. cancel_refresh=1 옵션을 함께 보내면 취소 후 재시작할 수 있습니다."
                 logger.warning(message)
                 if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
                     return jsonify({"error": message, "refresh_state": state}), 409
@@ -783,7 +962,7 @@ def restart_server():
                     status_code = 503 if wants_json else 409
                     if wants_json:
                         return jsonify(response_body), status_code
-                    return "작업이 아직 종료되지 않았습니다. ?force=1 로 강제 종료할 수 있습니다.", status_code
+                    return "작업이 아직 종료되지 않았습니다. force=1 옵션으로 강제 종료할 수 있습니다.", status_code
                 force_msg = "⚠️ 강제 종료 옵션으로 재시작을 진행합니다. 작업이 완전히 종료되지 않았을 수 있습니다."
                 logger.warning(force_msg)
                 _append_refresh_log(force_msg)
@@ -798,7 +977,8 @@ def restart_server():
         logger.info("♻ 서버 재시작 명령 실행됨")
         os._exit(0)
     except Exception as e:
-        return f"❌ 재시작 오류: {e}", 500
+        logger.exception("서버 재시작 오류: %s", e)
+        return "❌ 서버 재시작 중 오류가 발생했습니다. 로그를 확인해 주세요.", 500
 
 @app.get("/restarting")
 def restarting_page():

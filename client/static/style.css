@@ -1378,6 +1378,12 @@ input[type="text"] { width: 300px; }
     font-size: 13px;
     white-space: pre-wrap;
 }
+.modal-exif-pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 
 /* --- Modal: generation meta table --- */
 .modal-info-panel-left .modal-info-scroll {

@@ -52,7 +52,13 @@ def read_video_comfy_meta(video_path: Path, settings_mod=settings) -> Dict[str, 
     """
 
     video_path = Path(video_path)
-    result: Dict[str, Any] = {"comment_raw": None, "prompt": None, "workflow": None}
+    result: Dict[str, Any] = {
+        "comment_raw": None,
+        "prompt": None,
+        "workflow": None,
+        "width": None,
+        "height": None,
+    }
 
     if not video_path.is_file():
         return result
@@ -84,6 +90,23 @@ def read_video_comfy_meta(video_path: Path, settings_mod=settings) -> Dict[str, 
         data = json.loads(proc.stdout or "{}")
     except json.JSONDecodeError:
         return result
+
+    streams = data.get("streams")
+    if isinstance(streams, list):
+        for stream in streams:
+            if not isinstance(stream, dict):
+                continue
+            if str(stream.get("codec_type") or "").lower() != "video":
+                continue
+            try:
+                result["width"] = int(stream.get("width"))
+            except (TypeError, ValueError):
+                result["width"] = None
+            try:
+                result["height"] = int(stream.get("height"))
+            except (TypeError, ValueError):
+                result["height"] = None
+            break
 
     fmt = data.get("format") or {}
     tags = fmt.get("tags") if isinstance(fmt, dict) else {}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
@@ -14,6 +15,7 @@ from core.utils.env_utils import parse_env_text, update_env_vars, write_env_text
 import settings
 
 bp = Blueprint("server_settings", __name__)
+logger = logging.getLogger(__name__)
 
 _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 _ENV_KEY_REGEX = re.compile(r"^[A-Z0-9_]+$")
@@ -818,7 +820,8 @@ def api_env_pick_path():
     try:
         path = _open_path_dialog(kind, title=title, initial=initial)
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        logger.exception("경로 선택 창 열기 실패: %s", exc)
+        return jsonify({"ok": False, "error": "경로 선택 창을 열지 못했습니다."}), 500
     return jsonify({"ok": True, "path": path, "cancelled": not bool(path)})
 
 

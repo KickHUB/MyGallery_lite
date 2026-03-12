@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Any, Dict, List, Optional
 
@@ -17,12 +18,22 @@ from core.tagging.wd14_tagger import AUTO_WD14_SOURCE, auto_tag_rel_path
 from core.db.search_utils import normalize_media_path
 
 bp = Blueprint("booru", __name__)
+logger = logging.getLogger(__name__)
 
 _CATEGORY_MAP = {0: "general", 1: "artist", 3: "copyright", 4: "character", 5: "meta"}
 _CATEGORY_NAMES = {"general", "artist", "copyright", "character", "meta"}
 MANUAL_SOURCE = "manual"
 AUTO_PREFIX = "auto:"
 _RATING_SOURCE = MANUAL_SOURCE
+_SAFE_AUTO_TAG_ERRORS = {
+    "이미지 경로가 올바르지 않습니다.",
+    "영상 페어링 이미지는 자동 태깅에서 제외됩니다.",
+    "WD14 모델 경로가 설정되지 않았습니다.",
+    "onnxruntime이 설치되어 있지 않습니다.",
+    "WD14 태그 CSV 파일을 찾을 수 없습니다.",
+    "WD14 태거 세션이 준비되지 않았습니다.",
+    "WD14 모델 출력이 비어 있습니다.",
+}
 
 
 def _normalize_category_filter(raw: Optional[str]) -> Optional[str]:
@@ -53,6 +64,13 @@ def _normalize_item_key(media_type: str, media_path: str) -> tuple[str, str]:
     media = (media_type or "").strip().lower() or "image"
     path = normalize_media_path(media_path or "")
     return media, path
+
+
+def _safe_auto_tag_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message in _SAFE_AUTO_TAG_ERRORS:
+        return message
+    return "자동 태깅을 실행하지 못했습니다."
 
 
 def _fetch_item_tag_items(
@@ -374,7 +392,8 @@ def api_booru_auto_tag():
     try:
         tags, rating_code = auto_tag_rel_path(path_norm)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
+        logger.exception("자동 태깅 실패: %s", exc)
+        return jsonify({"error": _safe_auto_tag_error(exc)}), 400
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()

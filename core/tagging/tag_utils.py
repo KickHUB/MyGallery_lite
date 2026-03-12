@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Union
 
 from settings import DEST_FOLDER_NAME, DRAFTS_FOLDER_NAME
 from core.media.gallery_layout import extract_date_from_path
+from core.media.png_meta_menu import parse_comfy_payload
 from core.media.png_metadata import parse_png_metadata, parse_png_metadata_with_status
 from core.media.video_meta import read_video_comfy_meta
 import settings as _settings
@@ -560,6 +561,19 @@ def extract_prompt_with_reason(
             prompt_raw = meta.get("prompt")
             workflow = meta.get("workflow")
             comment_raw = meta.get("comment_raw")
+            parsed_video_data, parsed_status = parse_comfy_payload(
+                prompt_raw,
+                workflow,
+                None,
+                file=rel,
+                width=meta.get("width"),
+                height=meta.get("height"),
+            )
+
+            if parsed_status == "ok":
+                if comment_raw:
+                    parsed_video_data["comment_raw"] = comment_raw
+                return _build_prompt_result_from_png_data(parsed_video_data, rel, date), None
 
             positive = ""
             negative = ""
@@ -578,6 +592,8 @@ def extract_prompt_with_reason(
                     "date": date,
                     "positive": positive,
                     "negative": negative or "",
+                    "width": meta.get("width"),
+                    "height": meta.get("height"),
                     "extras": {
                         "prompt_raw": prompt_raw,
                         "workflow": workflow,

@@ -4,6 +4,52 @@
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const byId = (id) => document.getElementById(id);
+  const SAFE_HTTP_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+  const nativeFetch = window.fetch.bind(window);
+
+  const getCsrfToken = () => {
+    const meta = qs('meta[name="csrf-token"]');
+    return meta ? (meta.getAttribute("content") || "").trim() : "";
+  };
+
+  const isSameOriginUrl = (value) => {
+    try {
+      return new URL(String(value), window.location.href).origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  };
+
+  const buildProtectedHeaders = (requestHeaders, initHeaders) => {
+    const headers = new Headers(requestHeaders || {});
+    const overrides = new Headers(initHeaders || {});
+    overrides.forEach((value, key) => headers.set(key, value));
+
+    const csrfToken = getCsrfToken();
+    if (csrfToken && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", csrfToken);
+    }
+    if (!headers.has("X-Requested-With")) {
+      headers.set("X-Requested-With", "XMLHttpRequest");
+    }
+    return headers;
+  };
+
+  window.fetch = (input, init = {}) => {
+    const request = input instanceof Request ? input : null;
+    const method = String(init.method || request?.method || "GET").toUpperCase();
+    const url = request ? request.url : input;
+
+    if (SAFE_HTTP_METHODS.has(method) || !isSameOriginUrl(url)) {
+      return nativeFetch(input, init);
+    }
+
+    const headers = buildProtectedHeaders(request?.headers, init.headers);
+    if (request) {
+      return nativeFetch(new Request(request, { ...init, headers }));
+    }
+    return nativeFetch(input, { ...init, headers });
+  };
 
   const ensureToastContainer = () => byId("toast-container");
 
